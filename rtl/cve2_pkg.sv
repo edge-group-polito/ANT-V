@@ -163,8 +163,8 @@ package cve2_pkg;
     ALU_LTU,
     ALU_GE,
     ALU_GEU,
-    ALU_LE,
-    ALU_LEU,
+    ALU_GT,
+    ALU_GTU,
     ALU_EQ,
     ALU_NE,
     // RV32B

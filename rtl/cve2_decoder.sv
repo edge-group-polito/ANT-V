@@ -1030,16 +1030,16 @@ module cve2_decoder #(
                 vrf_we_o = 1'b1;
                 vrf_sel_operation_o = 4'b1010;
               end
-              {6'b01_1110, 3'b000}: begin // vmsle.vv
+              {6'b01_1101, 3'b000}: begin // vmsle.vv
                 vrf_we_o = 1'b1;
                 vrf_sel_operation_o = 4'b1011;
                 vrf_mult_ops_o = 1'b1;
               end
-              {6'b01_1110, 3'b100}: begin // vmsle.vx
+              {6'b01_1101, 3'b100}: begin // vmsle.vx
                 vrf_we_o = 1'b1;
                 vrf_sel_operation_o = 4'b1010;
               end
-              {6'b01_1110, 3'b011}: begin // vmsle.vi
+              {6'b01_1101, 3'b011}: begin // vmsle.vi
                 vrf_we_o = 1'b1;
                 vrf_sel_operation_o = 4'b1010;
               end
@@ -1324,16 +1324,16 @@ module cve2_decoder #(
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1010;
             end
-            {6'b01_1110, 3'b000}: begin // xvmsle.vv
+            {6'b01_1101, 3'b000}: begin // xvmsle.vv
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1011;
               vrf_mult_ops_o = 1'b1;
             end
-            {6'b01_1110, 3'b100}: begin // xvmsle.vx
+            {6'b01_1101, 3'b100}: begin // xvmsle.vx
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1010;
             end
-            {6'b01_1110, 3'b011}: begin // xvmsle.vi
+            {6'b01_1101, 3'b011}: begin // xvmsle.vi
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1010;
             end
@@ -2140,41 +2140,41 @@ module cve2_decoder #(
                 imm_a_mux_sel_o    = IMM_A_Z;
               end
               {6'b01_1011, 3'b000}: begin // vmslt.vv
-                alu_operator_o = ALU_LT;
+                alu_operator_o = ALU_GT;
               end
               {6'b01_1011, 3'b100}: begin // vmslt.vx
-                alu_operator_o = ALU_LT;
+                alu_operator_o = ALU_GT;
                 alu_op_a_mux_sel_o = OP_A_REG_A;
               end
               {6'b01_1010, 3'b000}: begin //vmsltu.vv
-                alu_operator_o = ALU_LTU;
+                alu_operator_o = ALU_GTU;
               end
               {6'b01_1010, 3'b100}: begin //vmsltu.vx
-                alu_operator_o = ALU_LTU;
+                alu_operator_o = ALU_GTU;
                 alu_op_a_mux_sel_o = OP_A_REG_A;
               end
-              {6'b01_1110, 3'b000}: begin // vmsle.vv
+              {6'b01_1101, 3'b000}: begin // vmsle.vv
                 // greater than on the other way
-                alu_operator_o = ALU_LE;
+                alu_operator_o = ALU_GE;
               end
-              {6'b01_1110, 3'b100}: begin // vmsle.vx
-                alu_operator_o = ALU_LE;
+              {6'b01_1101, 3'b100}: begin // vmsle.vx
+                alu_operator_o = ALU_GE;
                 alu_op_a_mux_sel_o = OP_A_REG_A;
               end
-              {6'b01_1110, 3'b011}: begin // vmsle.vi
-                alu_operator_o = ALU_LE;
+              {6'b01_1101, 3'b011}: begin // vmsle.vi
+                alu_operator_o = ALU_GE;
                 alu_op_a_mux_sel_o = OP_A_IMM;
                 imm_a_mux_sel_o    = IMM_A_Z;
               end
               {6'b01_1100, 3'b000}: begin // vmsleu.vv
-                alu_operator_o = ALU_LEU;
+                alu_operator_o = ALU_GEU;
               end
               {6'b01_1100, 3'b100}: begin // vmsleu.vx
-                alu_operator_o = ALU_LEU;
+                alu_operator_o = ALU_GEU;
                 alu_op_a_mux_sel_o = OP_A_REG_A;
               end
               {6'b01_1100, 3'b011}: begin // vmsleu.vi
-                alu_operator_o = ALU_LEU;
+                alu_operator_o = ALU_GEU;
                 alu_op_a_mux_sel_o = OP_A_IMM;
                 imm_a_mux_sel_o    = IMM_A_Z;
               end
@@ -2442,41 +2442,41 @@ module cve2_decoder #(
               imm_a_mux_sel_o    = IMM_A_Z;
             end
             {6'b01_1011, 3'b000}: begin // xvmslt.vv
-              alu_operator_o = ALU_LT;
+              alu_operator_o = ALU_GT;
             end
             {6'b01_1011, 3'b100}: begin // xvmslt.vx
-              alu_operator_o = ALU_LT;
+              alu_operator_o = ALU_GT;
               alu_op_a_mux_sel_o = OP_A_REG_A;
             end
             {6'b01_1010, 3'b000}: begin // xvmsltu.vv
-              alu_operator_o = ALU_LTU;
+              alu_operator_o = ALU_GTU;
             end
             {6'b01_1010, 3'b100}: begin // xvmsltu.vx
-              alu_operator_o = ALU_LTU;
+              alu_operator_o = ALU_GTU;
               alu_op_a_mux_sel_o = OP_A_REG_A;
             end
-            {6'b01_1110, 3'b000}: begin // xvmsle.vv
+            {6'b01_1101, 3'b000}: begin // xvmsle.vv
               // greater than on the other way
-              alu_operator_o = ALU_LE;
+              alu_operator_o = ALU_GE;
             end
-            {6'b01_1110, 3'b100}: begin // xvmsle.vx
-              alu_operator_o = ALU_LE;
+            {6'b01_1101, 3'b100}: begin // xvmsle.vx
+              alu_operator_o = ALU_GE;
               alu_op_a_mux_sel_o = OP_A_REG_A;
             end
-            {6'b01_1110, 3'b011}: begin // xvmsle.vi
-              alu_operator_o = ALU_LE;
+            {6'b01_1101, 3'b011}: begin // xvmsle.vi
+              alu_operator_o = ALU_GE;
               alu_op_a_mux_sel_o = OP_A_IMM;
               imm_a_mux_sel_o    = IMM_A_Z;
             end
             {6'b01_1100, 3'b000}: begin // xvmsleu.vv
-              alu_operator_o = ALU_LEU;
+              alu_operator_o = ALU_GEU;
             end
             {6'b01_1100, 3'b100}: begin // xvmsleu.vx
-              alu_operator_o = ALU_LEU;
+              alu_operator_o = ALU_GEU;
               alu_op_a_mux_sel_o = OP_A_REG_A;
             end
             {6'b01_1100, 3'b011}: begin // xvmsleu.vi
-              alu_operator_o = ALU_LEU;
+              alu_operator_o = ALU_GEU;
               alu_op_a_mux_sel_o = OP_A_IMM;
               imm_a_mux_sel_o    = IMM_A_Z;
             end
