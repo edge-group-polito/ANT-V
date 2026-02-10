@@ -844,6 +844,45 @@ module cve2_decoder #(
                 multdiv_operator_o    = MD_OP_MULL;
                 multdiv_signed_mode_o = 2'b00;
               end
+              {6'b10_0111, 3'b010}: begin    // vmulh.vv
+                vrf_we_o = 1'b1;
+                vrf_sel_operation_o = 4'b1011;
+                vrf_mult_ops_o = 1'b1;
+                multdiv_operator_o    = MD_OP_MULH;
+                multdiv_signed_mode_o = 2'b11;
+              end
+              {6'b10_0111, 3'b110}: begin    // vmulh.vx
+                vrf_we_o = 1'b1;
+                vrf_sel_operation_o = 4'b1010;
+                multdiv_operator_o    = MD_OP_MULH;
+                multdiv_signed_mode_o = 2'b11;
+              end
+              {6'b10_0100, 3'b010}: begin    // vmulhu.vv
+                vrf_we_o = 1'b1;
+                vrf_sel_operation_o = 4'b1011;
+                vrf_mult_ops_o = 1'b1;
+                multdiv_operator_o    = MD_OP_MULH;
+                multdiv_signed_mode_o = 2'b00;
+              end
+              {6'b10_0100, 3'b110}: begin    // vmulhu.vx
+                vrf_we_o = 1'b1;
+                vrf_sel_operation_o = 4'b1010;
+                multdiv_operator_o    = MD_OP_MULH;
+                multdiv_signed_mode_o = 2'b00;
+              end
+              {6'b10_0110, 3'b010}: begin    // vmulhsu.vv
+                vrf_we_o = 1'b1;
+                vrf_sel_operation_o = 4'b1011;
+                vrf_mult_ops_o = 1'b1;
+                multdiv_operator_o    = MD_OP_MULH;
+                multdiv_signed_mode_o = 2'b01;
+              end
+              {6'b10_0110, 3'b110}: begin    // vmulhsu.vx
+                vrf_we_o = 1'b1;
+                vrf_sel_operation_o = 4'b1010;
+                multdiv_operator_o    = MD_OP_MULH;
+                multdiv_signed_mode_o = 2'b01;
+              end
 
               // LOGICAL
               {6'b00_1001, 3'b000}: begin    // vand.vv
@@ -1037,6 +1076,45 @@ module cve2_decoder #(
               multdiv_operator_o    = MD_OP_MULL;
               multdiv_signed_mode_o = 2'b00;
             end
+            {6'b10_0101, 3'b010}: begin    // xvmulh.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1011;
+              vrf_mult_ops_o = 1'b1;
+              multdiv_operator_o    = MD_OP_MULH;
+              multdiv_signed_mode_o = 2'b00;
+            end
+            {6'b10_0101, 3'b110}: begin    // xvmulh.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+              multdiv_operator_o    = MD_OP_MULH;
+              multdiv_signed_mode_o = 2'b00;
+            end
+            {6'b10_0101, 3'b010}: begin    // xvmulhu.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1011;
+              vrf_mult_ops_o = 1'b1;
+              multdiv_operator_o    = MD_OP_MULH;
+              multdiv_signed_mode_o = 2'b00;
+            end
+            {6'b10_0101, 3'b110}: begin    // xvmulhu.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+              multdiv_operator_o    = MD_OP_MULH;
+              multdiv_signed_mode_o = 2'b00;
+            end
+            {6'b10_0101, 3'b010}: begin    // xvmulhsu.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1011;
+              vrf_mult_ops_o = 1'b1;
+              multdiv_operator_o    = MD_OP_MULH;
+              multdiv_signed_mode_o = 2'b00;
+            end
+            {6'b10_0101, 3'b110}: begin    // xvmulhsu.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+              multdiv_operator_o    = MD_OP_MULH;
+              multdiv_signed_mode_o = 2'b00;
+            end
 
             // LOGICAL
             {6'b00_1001, 3'b000}: begin    // xvand.vv
@@ -1078,6 +1156,93 @@ module cve2_decoder #(
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1010;
             end
+            // Comparisons
+            {6'b01_1000, 3'b000}: begin // vmseq.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1011;
+              vrf_mult_ops_o = 1'b1;
+            end
+            {6'b01_1000, 3'b100}: begin // vmseq.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1000, 3'b011}: begin // vmseq.vi
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1001, 3'b000}: begin // vmsne.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1011;
+              vrf_mult_ops_o = 1'b1;
+            end
+            {6'b01_1001, 3'b100}: begin // vmsne.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1001, 3'b011}: begin // vmsne.vi
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1011, 3'b000}: begin // vmslt.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1011;
+              vrf_mult_ops_o = 1'b1;
+            end
+            {6'b01_1011, 3'b100}: begin // vmslt.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1010, 3'b000}: begin //vmsltu.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1011;
+              vrf_mult_ops_o = 1'b1;
+            end
+            {6'b01_1010, 3'b100}: begin //vmsltu.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1110, 3'b000}: begin // vmsle.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1011;
+              vrf_mult_ops_o = 1'b1;
+            end
+            {6'b01_1110, 3'b100}: begin // vmsle.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1110, 3'b011}: begin // vmsle.vi
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1100, 3'b000}: begin // vmsleu.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1011;
+              vrf_mult_ops_o = 1'b1;
+            end
+            {6'b01_1100, 3'b100}: begin // vmsleu.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1100, 3'b011}: begin // vmsleu.vi
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            //{6'b01_1111, 3'b100}: begin // vmsgt.vx
+            //  vrf_we_o = 1'b1;
+            //  vrf_sel_operation_o = 4'b1010;
+            //end
+            //{6'b01_1111, 3'b011}: begin // vmsgt.vi
+            //  vrf_we_o = 1'b1;
+            //  vrf_sel_operation_o = 4'b1010;
+            //end
+            //{6'b01_1110, 3'b000}: begin // vmsgtu.vx
+            //  vrf_we_o = 1'b1;
+            //  vrf_sel_operation_o = 4'b1010;
+            //end
+            //{6'b01_1110, 3'b011}: begin // vmsgtu.vi
+            //  vrf_we_o = 1'b1;
+            //  vrf_sel_operation_o = 4'b1010;
+            //end
             // MAX
             {6'b00_0100, 3'b000}: begin    // xvminu.vv
               vrf_we_o = 1'b1;
@@ -1115,7 +1280,93 @@ module cve2_decoder #(
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1010;
             end
-
+            // Comparison instructions
+            {6'b01_1000, 3'b000}: begin // xvmseq.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1011;
+              vrf_mult_ops_o = 1'b1;
+            end
+            {6'b01_1000, 3'b100}: begin // xvmseq.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1000, 3'b011}: begin // xvmseq.vi
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1001, 3'b000}: begin // xvmsne.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1011;
+              vrf_mult_ops_o = 1'b1;
+            end
+            {6'b01_1001, 3'b100}: begin // xvmsne.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1001, 3'b011}: begin // xvmsne.vi
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1011, 3'b000}: begin // xvmslt.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1011;
+              vrf_mult_ops_o = 1'b1;
+            end
+            {6'b01_1011, 3'b100}: begin // xvmslt.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1010, 3'b000}: begin //xvmsltu.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1011;
+              vrf_mult_ops_o = 1'b1;
+            end
+            {6'b01_1010, 3'b100}: begin //xvmsltu.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1110, 3'b000}: begin // xvmsle.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1011;
+              vrf_mult_ops_o = 1'b1;
+            end
+            {6'b01_1110, 3'b100}: begin // xvmsle.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1110, 3'b011}: begin // xvmsle.vi
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1100, 3'b000}: begin // xvmsleu.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1011;
+              vrf_mult_ops_o = 1'b1;
+            end
+            {6'b01_1100, 3'b100}: begin // xvmsleu.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1100, 3'b011}: begin // xvmsleu.vi
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            //{6'b01_1111, 3'b100}: begin // xvmsgt.vx
+            //  vrf_we_o = 1'b1;
+            //  vrf_sel_operation_o = 4'b1010;
+            //end
+            //{6'b01_1111, 3'b011}: begin // xvmsgt.vi
+            //  vrf_we_o = 1'b1;
+            //  vrf_sel_operation_o = 4'b1010;
+            //end
+            //{6'b01_1110, 3'b000}: begin //xvmsgtu.vx
+            //  vrf_we_o = 1'b1;
+            //  vrf_sel_operation_o = 4'b1010;
+            //end
+            //{6'b01_1110, 3'b011}: begin // xvmsgtu.vi
+            //  vrf_we_o = 1'b1;
+            //  vrf_sel_operation_o = 4'b1010;
+            //end
             // Multiply-and-Accumulate instructions
             {6'b10_1101, 3'b010}: begin    // xvmacc.vv
               vrf_we_o = 1'b1;
@@ -1864,6 +2115,88 @@ module cve2_decoder #(
                 alu_operator_o     = ALU_XOR;
                 imm_a_mux_sel_o    = IMM_A_Z;
               end
+              // Comparison
+              {6'b01_1000, 3'b000}: begin // vmseq.vv
+                alu_operator_o = ALU_EQ;
+              end
+              {6'b01_1000, 3'b100}: begin // vmseq.vx
+                alu_operator_o = ALU_EQ;
+                alu_op_a_mux_sel_o = OP_A_REG_A;
+              end
+              {6'b01_1000, 3'b011}: begin // vmseq.vi
+                alu_operator_o = ALU_EQ;
+                alu_op_a_mux_sel_o = OP_A_IMM;
+                imm_a_mux_sel_o    = IMM_A_Z;
+              end
+              {6'b01_1001, 3'b000}: begin // vmsne.vv
+                alu_operator_o = ALU_NE;
+              end
+              {6'b01_1001, 3'b100}: begin // vmsne.vx
+                alu_operator_o = ALU_NE;
+                alu_op_a_mux_sel_o = OP_A_REG_A;
+              end
+              {6'b01_1001, 3'b011}: begin // vmsne.vi
+                alu_operator_o = ALU_NE;
+                alu_op_a_mux_sel_o = OP_A_IMM;
+                imm_a_mux_sel_o    = IMM_A_Z;
+              end
+              {6'b01_1011, 3'b000}: begin // vmslt.vv
+                alu_operator_o = ALU_LT;
+              end
+              {6'b01_1011, 3'b100}: begin // vmslt.vx
+                alu_operator_o = ALU_LT;
+                alu_op_a_mux_sel_o = OP_A_REG_A;
+              end
+              {6'b01_1010, 3'b000}: begin //vmsltu.vv
+                alu_operator_o = ALU_LTU;
+              end
+              {6'b01_1010, 3'b100}: begin //vmsltu.vx
+                alu_operator_o = ALU_LTU;
+                alu_op_a_mux_sel_o = OP_A_REG_A;
+              end
+              {6'b01_1110, 3'b000}: begin // vmsle.vv
+                // greater than on the other way
+                alu_operator_o = ALU_LE;
+              end
+              {6'b01_1110, 3'b100}: begin // vmsle.vx
+                alu_operator_o = ALU_LE;
+                alu_op_a_mux_sel_o = OP_A_REG_A;
+              end
+              {6'b01_1110, 3'b011}: begin // vmsle.vi
+                alu_operator_o = ALU_LE;
+                alu_op_a_mux_sel_o = OP_A_IMM;
+                imm_a_mux_sel_o    = IMM_A_Z;
+              end
+              {6'b01_1100, 3'b000}: begin // vmsleu.vv
+                alu_operator_o = ALU_LEU;
+              end
+              {6'b01_1100, 3'b100}: begin // vmsleu.vx
+                alu_operator_o = ALU_LEU;
+                alu_op_a_mux_sel_o = OP_A_REG_A;
+              end
+              {6'b01_1100, 3'b011}: begin // vmsleu.vi
+                alu_operator_o = ALU_LEU;
+                alu_op_a_mux_sel_o = OP_A_IMM;
+                imm_a_mux_sel_o    = IMM_A_Z;
+              end
+              //{6'b01_1111, 3'b100}: begin // vmsgt.vx
+              //  alu_operator_o = ALU_GT;
+              //  alu_op_a_mux_sel_o = OP_A_REG_A;
+              //end
+              //{6'b01_1111, 3'b011}: begin // vmsgt.vi
+              //  alu_operator_o = ALU_GT;
+              //  alu_op_a_mux_sel_o = OP_A_IMM;
+              //  imm_a_mux_sel_o    = IMM_A_Z;
+              //end
+              //{6'b01_1110, 3'b000}: begin // vmsgtu.vx
+              //  alu_operator_o = ALU_GTU;
+              //  alu_op_a_mux_sel_o = OP_A_REG_A;
+              //end
+              //{6'b01_1110, 3'b011}: begin // vmsgtu.vi
+              //  alu_operator_o     = ALU_GTU;
+              //  alu_op_a_mux_sel_o = OP_A_IMM;
+              //  imm_a_mux_sel_o    = IMM_A_Z;
+              //end
               // MAX
               {6'b00_0100, 3'b000}: begin    // vminu.vv
                 //alu_op_a_mux_sel_o = OP_A_VREG;
@@ -1918,7 +2251,42 @@ module cve2_decoder #(
                 alu_operator_o = ALU_ADD;
                 mult_sel_o     = (RV32M == RV32MNone) ? 1'b0 : 1'b1;
               end
-
+              {6'b10_0111, 3'b010}: begin    // vmulh.vv
+                //alu_op_a_mux_sel_o = OP_A_VREG;
+                //alu_op_b_mux_sel_o = OP_B_VREG;
+                alu_operator_o = ALU_ADD;
+                mult_sel_o     = (RV32M == RV32MNone) ? 1'b0 : 1'b1;
+              end
+              {6'b10_0111, 3'b110}: begin    // vmulh.vx
+                alu_op_a_mux_sel_o = OP_A_REG_A;
+                //alu_op_b_mux_sel_o = OP_B_VREG;
+                alu_operator_o = ALU_ADD;
+                mult_sel_o     = (RV32M == RV32MNone) ? 1'b0 : 1'b1;
+              end
+              {6'b10_0100, 3'b010}: begin    // vmulhu.vv
+                //alu_op_a_mux_sel_o = OP_A_VREG;
+                //alu_op_b_mux_sel_o = OP_B_VREG;
+                alu_operator_o = ALU_ADD;
+                mult_sel_o     = (RV32M == RV32MNone) ? 1'b0 : 1'b1;
+              end
+              {6'b10_0100, 3'b110}: begin    // vmulhu.vx
+                alu_op_a_mux_sel_o = OP_A_REG_A;
+                //alu_op_b_mux_sel_o = OP_B_VREG;
+                alu_operator_o = ALU_ADD;
+                mult_sel_o     = (RV32M == RV32MNone) ? 1'b0 : 1'b1;
+              end
+              {6'b10_0110, 3'b010}: begin    // vmulhsu.vv
+                //alu_op_a_mux_sel_o = OP_A_VREG;
+                //alu_op_b_mux_sel_o = OP_B_VREG;
+                alu_operator_o = ALU_ADD;
+                mult_sel_o     = (RV32M == RV32MNone) ? 1'b0 : 1'b1;
+              end
+              {6'b10_0110, 3'b110}: begin    // vmulhsu.vx
+                alu_op_a_mux_sel_o = OP_A_REG_A;
+                //alu_op_b_mux_sel_o = OP_B_VREG;
+                alu_operator_o = ALU_ADD;
+                mult_sel_o     = (RV32M == RV32MNone) ? 1'b0 : 1'b1;
+              end
               // Multiply-and-Accumulate instructions
               {6'b10_1101, 3'b010}: begin    // vmacc.vv
                 //alu_op_a_mux_sel_o = OP_A_VREG;
@@ -2049,6 +2417,88 @@ module cve2_decoder #(
               alu_operator_o     = ALU_XOR;
               imm_a_mux_sel_o    = IMM_A_Z;
             end
+            // Comparison
+            {6'b01_1000, 3'b000}: begin // xvmseq.vv
+              alu_operator_o = ALU_EQ;
+            end
+            {6'b01_1000, 3'b100}: begin // xvmseq.vx
+              alu_operator_o = ALU_EQ;
+              alu_op_a_mux_sel_o = OP_A_REG_A;
+            end
+            {6'b01_1000, 3'b011}: begin // xvmseq.vi
+              alu_operator_o = ALU_EQ;
+              alu_op_a_mux_sel_o = OP_A_IMM;
+              imm_a_mux_sel_o    = IMM_A_Z;
+            end
+            {6'b01_1001, 3'b000}: begin // xvmsne.vv
+              alu_operator_o = ALU_NE;
+            end
+            {6'b01_1001, 3'b100}: begin // xvmsne.vx
+              alu_operator_o = ALU_NE;
+              alu_op_a_mux_sel_o = OP_A_REG_A;
+            end
+            {6'b01_1001, 3'b011}: begin // xvmsne.vi
+              alu_operator_o = ALU_NE;
+              alu_op_a_mux_sel_o = OP_A_IMM;
+              imm_a_mux_sel_o    = IMM_A_Z;
+            end
+            {6'b01_1011, 3'b000}: begin // xvmslt.vv
+              alu_operator_o = ALU_LT;
+            end
+            {6'b01_1011, 3'b100}: begin // xvmslt.vx
+              alu_operator_o = ALU_LT;
+              alu_op_a_mux_sel_o = OP_A_REG_A;
+            end
+            {6'b01_1010, 3'b000}: begin // xvmsltu.vv
+              alu_operator_o = ALU_LTU;
+            end
+            {6'b01_1010, 3'b100}: begin // xvmsltu.vx
+              alu_operator_o = ALU_LTU;
+              alu_op_a_mux_sel_o = OP_A_REG_A;
+            end
+            {6'b01_1110, 3'b000}: begin // xvmsle.vv
+              // greater than on the other way
+              alu_operator_o = ALU_LE;
+            end
+            {6'b01_1110, 3'b100}: begin // xvmsle.vx
+              alu_operator_o = ALU_LE;
+              alu_op_a_mux_sel_o = OP_A_REG_A;
+            end
+            {6'b01_1110, 3'b011}: begin // xvmsle.vi
+              alu_operator_o = ALU_LE;
+              alu_op_a_mux_sel_o = OP_A_IMM;
+              imm_a_mux_sel_o    = IMM_A_Z;
+            end
+            {6'b01_1100, 3'b000}: begin // xvmsleu.vv
+              alu_operator_o = ALU_LEU;
+            end
+            {6'b01_1100, 3'b100}: begin // xvmsleu.vx
+              alu_operator_o = ALU_LEU;
+              alu_op_a_mux_sel_o = OP_A_REG_A;
+            end
+            {6'b01_1100, 3'b011}: begin // xvmsleu.vi
+              alu_operator_o = ALU_LEU;
+              alu_op_a_mux_sel_o = OP_A_IMM;
+              imm_a_mux_sel_o    = IMM_A_Z;
+            end
+            //{6'b01_1111, 3'b100}: begin // xvmsgt.vx
+            //  alu_operator_o = ALU_GT;
+            //  alu_op_a_mux_sel_o = OP_A_REG_A;
+            //end
+            //{6'b01_1111, 3'b011}: begin // xvmsgt.vi
+            //  alu_operator_o = ALU_GT;
+            //  alu_op_a_mux_sel_o = OP_A_IMM;
+            //  imm_a_mux_sel_o    = IMM_A_Z;
+            //end
+            //{6'b01_1110, 3'b000}: begin // xvmsgtu.vx
+            //  alu_operator_o = ALU_GTU;
+            //  alu_op_a_mux_sel_o = OP_A_REG_A;
+            //end
+            //{6'b01_1110, 3'b011}: begin // xvmsgtu.vi
+            //  alu_operator_o     = ALU_GTU;
+            //  alu_op_a_mux_sel_o = OP_A_IMM;
+            //  imm_a_mux_sel_o    = IMM_A_Z;
+            //end
             // MAX
             {6'b00_0100, 3'b000}: begin    // xvminu.vv
               alu_operator_o     = ALU_MINU;
@@ -2084,6 +2534,33 @@ module cve2_decoder #(
               mult_sel_o     = (RV32M == RV32MNone) ? 1'b0 : 1'b1;
             end
             {6'b10_0101, 3'b110}: begin    // xvmul.vx
+              alu_op_a_mux_sel_o = OP_A_REG_A;
+              alu_operator_o = ALU_ADD;
+              mult_sel_o     = (RV32M == RV32MNone) ? 1'b0 : 1'b1;
+            end
+            {6'b10_0101, 3'b010}: begin    // xvmulh.vv
+              alu_operator_o = ALU_ADD;
+              mult_sel_o     = (RV32M == RV32MNone) ? 1'b0 : 1'b1;
+            end
+            {6'b10_0101, 3'b110}: begin    // xvmulh.vx
+              alu_op_a_mux_sel_o = OP_A_REG_A;
+              alu_operator_o = ALU_ADD;
+              mult_sel_o     = (RV32M == RV32MNone) ? 1'b0 : 1'b1;
+            end 
+            {6'b10_0101, 3'b010}: begin    // xvmulhu.vv
+              alu_operator_o = ALU_ADD;
+              mult_sel_o     = (RV32M == RV32MNone) ? 1'b0 : 1'b1;
+            end
+            {6'b10_0101, 3'b110}: begin    // xvmulhu.vx
+              alu_op_a_mux_sel_o = OP_A_REG_A;
+              alu_operator_o = ALU_ADD;
+              mult_sel_o     = (RV32M == RV32MNone) ? 1'b0 : 1'b1;
+            end 
+            {6'b10_0101, 3'b010}: begin    // xvmulhsu.vv
+              alu_operator_o = ALU_ADD;
+              mult_sel_o     = (RV32M == RV32MNone) ? 1'b0 : 1'b1;
+            end
+            {6'b10_0101, 3'b110}: begin    // xvmulhsu.vx
               alu_op_a_mux_sel_o = OP_A_REG_A;
               alu_operator_o = ALU_ADD;
               mult_sel_o     = (RV32M == RV32MNone) ? 1'b0 : 1'b1;

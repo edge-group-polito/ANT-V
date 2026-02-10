@@ -80,6 +80,7 @@ module cve2_alu #(
       
       // MinMax OPs (RV32B Ops)
       ALU_MIN,  ALU_MINU,
+      ALU_LE, ALU_LEU,
       ALU_MAX,  ALU_MAXU: adder_op_b_negate = 1'b1;
 
       // Address Calculation OPs (RV32B Ops)
@@ -147,11 +148,11 @@ module cve2_alu #(
     unique case (operator_i)
       ALU_GE,
       ALU_LT,
+      ALU_LE,
       ALU_SLT,
       // RV32B only
       ALU_MIN,
       ALU_MAX: cmp_signed = 1'b1;
-
       default: cmp_signed = 1'b0;
     endcase
   end
@@ -250,6 +251,7 @@ module cve2_alu #(
       ALU_NE:             cmp_result[0] = ~is_equal;
       ALU_GE,   ALU_GEU,
       ALU_MAX,  ALU_MAXU: cmp_result = is_greater_equal; // RV32B only
+      ALU_LE,   ALU_LEU:  cmp_result[0] = ~is_greater_equal[0] || is_equal; // RV32VX 32-bit only
       ALU_LT,   ALU_LTU,
       ALU_MIN,  ALU_MINU, //RV32B only
       ALU_SLT,  ALU_SLTU: cmp_result = ~is_greater_equal;
@@ -1454,6 +1456,7 @@ module cve2_alu #(
       // Comparison Operations
       ALU_EQ,   ALU_NE,
       ALU_GE,   ALU_GEU,
+      ALU_LE,   ALU_LEU,
       ALU_LT,   ALU_LTU,
       ALU_SLT,  ALU_SLTU: result_o = {31'h0,cmp_result[0]};
 
