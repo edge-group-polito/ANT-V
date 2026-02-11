@@ -52,6 +52,7 @@ module cve2_vrf_interface #(
     // ID signals
     input  logic [3:0]            sel_operation_i,    // each bit enables a different operation, 0 - R RS1, 1 - R RS2, 2 - R RS3, 3 - W RD
     input  logic                  memory_op_i,        // 0 - arithmetic operation, 1 - load/store operation
+    input  logic                  multicycle_op_i,    // 0 - single cycle operation, 1 - multi-cycle operation (e.g. mulh) 
     input  logic                  unit_stride_i,      // 0 - non-unit stride, 1 - unit stride
     input  logic                  mult_ops_i,      // 0 - non-interleaved, 1 - interleaved
     output logic                  vector_done_o,      // signals the pipeline that the vector operation is finished (most likely with a write to the VRF)
@@ -116,6 +117,13 @@ module cve2_vrf_interface #(
   logic curr_demux_sel, next_demux_sel;
   logic mux_sel;
   logic [1:0] lsu_offset_q;
+  // Handle multi-cycle operations
+  logic first_mc_write_d, first_mc_write_q;
+  logic curr_mc_demux_sel, next_mc_demux_sel;
+  logic curr_mc_rd_demux_sel, next_mc_rd_demux_sel;
+  logic curr_mc_mux_sel, next_mc_mux_sel;
+  logic curr_mc_rd_mux_sel, next_mc_rd_mux_sel;
+  logic [PIPE_WIDTH-1:0] rs1_q_1, rs2_q_1, rd_q_1;
 
   //////////////////
   // BE selector  //
@@ -260,6 +268,12 @@ module cve2_vrf_interface #(
     // Demux to handle sub-word mem accesses
     next_demux_sel = curr_demux_sel;
     mux_sel = '0;
+    //next_rs1_demux_sel = '0;
+    first_mc_write_d = first_mc_write_q;
+    next_mc_demux_sel = curr_mc_demux_sel;
+    next_mc_rd_demux_sel = curr_mc_rd_demux_sel;
+    next_mc_mux_sel = curr_mc_mux_sel;
+    next_mc_rd_mux_sel = curr_mc_rd_mux_sel;
 
     case (vrf_state)
 
@@ -302,9 +316,17 @@ module cve2_vrf_interface #(
             else agu_get_rs2_o = 1'b1;
             if (data_gnt_i) begin
               agu_incr_o = 1'b1;
-              vrf_next_state = VRF_INT_READ1;
-            end else vrf_next_state = VRF_START;
-            
+              if (multicycle_op_i) begin
+                vrf_next_state = VRF_MC_READ1;
+                first_mc_write_d = 1'b1;
+                next_mc_demux_sel = 1'b0;
+                next_mc_mux_sel = 1'b0;
+                next_mc_rd_mux_sel = 1'b0;
+                next_mc_rd_demux_sel = 1'b0;
+              end else 
+                vrf_next_state = VRF_INT_READ1;
+            end else
+              vrf_next_state = VRF_START;
           end else begin
             if (sel_operation_i[0] || sel_operation_i[1]) begin
               data_req_o = 1'b1;
@@ -313,6 +335,14 @@ module cve2_vrf_interface #(
               if (data_gnt_i) begin
                 agu_incr_o = 1'b1;
                 if (slide_op_i && !is_slide_up_i && !no_offset_first) vrf_next_state = VRF_LOAD_SLIDE;
+                else if (multicycle_op_i) begin
+                  vrf_next_state = VRF_MC_READ;
+                  first_mc_write_d = 1'b1;
+                  next_mc_demux_sel = 1'b0;
+                  next_mc_mux_sel = 1'b0;
+                  next_mc_rd_mux_sel = 1'b0;
+                  next_mc_rd_demux_sel = 1'b0;
+                end
                 else vrf_next_state = VRF_READ;
               end else vrf_next_state = VRF_START;
             end else if (sel_operation_i[3]) begin
@@ -692,7 +722,186 @@ module cve2_vrf_interface #(
           vrf_next_state = VRF_STORE_WAITGNT;
         end
       end
+    
+    
+    ////////////////////////////////////
+    // Multicycle ops (mulh variants) //
+    ////////////////////////////////////
+    // Support is limited to two cycles ops only for now, otherwise the mechanism would be more complex
 
+    VRF_MC_READ1: begin
+      // SAMPLE
+      // TODO: adapt to multiple regs
+      if (data_rvalid_i) begin //&& !last_iteration_q) begin
+        if (sel_operation_i[0]) begin
+          rs1_en = 1;
+          //next_rs1_demux_sel = ~curr_rs1_demux_sel;
+        end
+        else vrf_next_state = ERR_STATE; // illegal operation, we need to read rs1 for multicycle ops
+      end
+      // Request RS2
+      if (sel_operation_i[1]) begin
+        data_req_o = 1'b1;
+        if (sel_operation_i[0]) agu_get_rs2_o = 1'b1;
+        else vrf_next_state = ERR_STATE; // illegal operation, we need to read rs2 for multicycle ops
+        if (data_gnt_i) begin
+          agu_incr_o = 1'b1;
+          if (num_iterations_q == (no_offset ? 1 : 0))
+            last_iteration_d = 1'b1;
+          else 
+            num_iterations_d = num_iterations_q - 1;
+          vrf_next_state = VRF_MC_READ2;
+        end else begin
+          num_iterations_d = num_iterations_q;
+          vrf_next_state = VRF_MC_READ1;
+        end
+      // illegal operation, we need to read rs2 for multicycle ops
+      end else begin
+        vrf_next_state = ERR_STATE;
+      end
+      if (!first_iteration_q) begin
+        // TODO: sample result produced in the buffer selected for this iteration
+        // TODO: check, there is a second it in which I should not do that?
+        rd_en = 1'b1; // enable sampling of result
+      end
+    end
+      
+    VRF_MC_READ2: begin
+      // Sample
+      if (data_rvalid_i) begin
+        if (sel_operation_i[0]) begin
+          rs2_en = 1;
+          next_mc_demux_sel = ~curr_mc_demux_sel;
+        end else vrf_next_state = ERR_STATE; // illegal operation, we need to read rs2 for multicycle ops
+      end
+      // If last iteration do not read rs1 anymore
+      if (first_iteration_q && !last_iteration_q) begin
+        data_req_o = 1'b1;
+        // Read rs1 for next iteration if needed
+        if (sel_operation_i[0])
+          agu_get_rs1_o = 1'b1;
+        if (data_gnt_i) begin
+          // TODO: check this does not break the address of the writeback!
+          agu_incr_o = 1'b1;
+          vrf_next_state = VRF_MC_READ1;
+        end else begin
+          vrf_next_state = VRF_MC_READ2;
+        end
+        if (first_iteration_q) begin
+          first_iteration_d = 1'b0;
+        end
+      end else begin
+        // if next operation is WRITE RD
+        if (sel_operation_i[3]) begin
+          data_we_o = 1'b1;
+          data_req_o = 1'b1;
+          agu_get_rd_o = 1'b1;
+          if (data_gnt_i) begin
+            agu_incr_o = 1'b1;
+            next_mc_mux_sel = ~curr_mc_mux_sel;
+            next_mc_rd_mux_sel = ~curr_mc_rd_mux_sel;
+            next_mc_rd_demux_sel = ~curr_mc_rd_demux_sel;
+            vrf_next_state = VRF_MC_WRITE;
+          end else vrf_next_state = VRF_MC_READ2;
+        // illegal operation
+        end else begin
+          vrf_next_state = ERR_STATE;
+        end
+        if (first_mc_write_q) begin
+          first_mc_write_d = 1'b0;
+          // TODO: select current value for writing
+        end
+      end
+    end
+
+    VRF_MC_WRITE: begin
+      // NEXT STATE SELECTION - moving to the next iteration
+      if (last_iteration_q) begin            // it's equal zero to take into account the first iteration
+        vector_done_o = 1'b1;
+        num_iterations_d = '0;
+        vrf_next_state = VRF_IDLE;
+      end else begin
+        // if next operation is READ RS2
+        if (sel_operation_i[1]) begin
+          data_req_o = 1'b1;
+          if (sel_operation_i[0]) agu_get_rs1_o = 1'b1;
+          if (data_gnt_i) begin
+            if (sel_operation_i[0]) begin
+              agu_incr_o = 1'b1;
+            end
+            //if (num_iterations_q == (no_offset ? 1 : 0)) last_iteration_d = 1'b1;
+            //else num_iterations_d = num_iterations_q - 1;
+            vrf_next_state = VRF_MC_READ1;
+          end else begin
+            //num_iterations_d = num_iterations_q;   // if the operation wasn't accepted we need to repeat it
+            vrf_next_state = VRF_MC_WRITE;
+          end
+        // illegal operation, go back to idle
+        end else begin
+          vrf_next_state = ERR_STATE;
+        end
+      end
+    end
+    // vx and vi instructions
+    VRF_MC_READ: begin
+      if (data_rvalid_i) begin
+        rs2_en = 1'b1;
+        next_mc_demux_sel = ~curr_mc_demux_sel;
+      end
+      data_req_o = 1'b1;
+      agu_get_rs2_o = 1'b1;
+      if (data_gnt_i) begin
+        agu_incr_o = 1'b1;
+        if (num_iterations_q == (no_offset ? 1 : 0))
+          last_iteration_d = 1'b1;
+        else 
+          num_iterations_d = num_iterations_q - 1;
+        //next_mc_rd_demux_sel = ~curr_mc_rd_demux_sel;
+        if (!first_iteration_q) begin
+          vrf_next_state = VRF_MC_WRITE_SINGLE;
+        end else begin
+          first_iteration_d = 1'b0;
+          vrf_next_state = VRF_MC_READ_FIRST;
+        end
+      end else begin
+        vrf_next_state = VRF_MC_READ;
+        num_iterations_d = num_iterations_q;   // if the operation wasn't accepted we need to repeat it
+      end
+    end
+
+    VRF_MC_READ_FIRST: begin
+      if (data_rvalid_i) begin
+        rs2_en = 1'b1;
+        vrf_next_state = VRF_MC_WRITE_SINGLE;
+      end else begin
+        vrf_next_state = VRF_MC_READ_FIRST;
+      end
+    end
+    // write result for vx and vi multicycle
+    VRF_MC_WRITE_SINGLE: begin
+      if (last_iteration_q) begin            // it's equal zero to take into account the first iteration
+        vector_done_o = 1'b1;
+        num_iterations_d = '0;
+        vrf_next_state = VRF_IDLE;
+      end else begin
+        data_req_o = 1'b1;
+        agu_get_rd_o = 1'b1;
+        if (data_gnt_i) begin
+          agu_incr_o = 1'b1;
+          vrf_next_state = VRF_MC_READ;
+          next_mc_mux_sel = ~curr_mc_mux_sel;
+          // no need for output mux
+          // use first_mc_write_q set to 1 always, to select the comb output
+        end else begin
+          vrf_next_state = VRF_MC_WRITE_SINGLE;
+        end
+      end
+    end
+
+    ERR_STATE: begin
+      // Remain here forever, test state
+      vrf_next_state = ERR_STATE;
+    end
       // illegal state go back to idle
       default: begin
         vrf_next_state = VRF_IDLE;
@@ -809,15 +1018,28 @@ module cve2_vrf_interface #(
       rs3_q_1 <= '0;
       rd_q  <= '0;
     end else begin
-      if (rs1_en) rs1_q <= rs1_d;
-      if (rs2_en) rs2_q <= rs2_d;
+      if (rs1_en && curr_mc_demux_sel == 0) begin
+        rs1_q <= rs1_d;
+      end else if (rs1_en && curr_mc_demux_sel == 1) begin
+        rs1_q_1 <= rs1_d;
+      end
+      if (rs2_en && curr_mc_demux_sel == 0) begin
+        rs2_q <= rs2_d;
+      end else if (rs2_en && curr_mc_demux_sel == 1) begin
+        rs2_q_1 <= rs2_d;
+      end
       if (rs3_en && curr_demux_sel == 0) begin
-        rs3_q <= rs3_d;
+          rs3_q <= rs3_d;
       end
       if (rs3_en && curr_demux_sel == 1) begin
         rs3_q_1 <= rs3_d_1;
       end
-      if (rd_en || rd_buf_en) rd_q <= rd_d;
+      if (rd_en || rd_buf_en) 
+        if (curr_mc_rd_demux_sel == 0) begin
+          rd_q <= rd_d;
+        end else begin
+          rd_q_1 <= rd_d;
+        end
     end
   end
   always_comb begin
@@ -828,17 +1050,35 @@ module cve2_vrf_interface #(
     rd_d    = wdata_i;
   end
 
+  // FFs for multicycle
+  // ------------------
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      curr_mc_demux_sel <= 1'b0;
+      curr_mc_rd_demux_sel <= 1'b0;
+      curr_mc_mux_sel <= 1'b0;
+      curr_mc_rd_mux_sel <= 1'b0;
+      first_mc_write_q <= 1'b0;
+    end else begin
+      curr_mc_demux_sel <= next_mc_demux_sel;
+      curr_mc_rd_mux_sel <= next_mc_rd_mux_sel;
+      curr_mc_rd_demux_sel <= next_mc_rd_demux_sel;
+      curr_mc_mux_sel <= next_mc_mux_sel;
+      first_mc_write_q <= first_mc_write_d;
+    end
+  end
+
   /////////////
   // Outputs //
   /////////////
 
-  assign rdata_a_o = rs1_q;
-  assign rdata_b_o = rs2_q;
+  assign rdata_a_o = (curr_mc_demux_sel == 0) ? rs1_q : rs1_q_1;
+  assign rdata_b_o = (curr_mc_demux_sel == 0) ? rs2_q : rs2_q_1;
   assign rdata_c_o = rdata_mux ? buffer_q : ((mux_sel) ? rs3_q_1 : rs3_q);
   // mux for the write data
   always_comb begin
     case (wdata_mux)
-      2'b00: data_wdata_o = wdata_i;
+      2'b00: data_wdata_o = (!multicycle_op_i) ? wdata_i : ((first_mc_write_q) ? wdata_i : (curr_mc_rd_mux_sel == 0 ? rd_q : rd_q_1));
       2'b01: data_wdata_o = rd_q;
       2'b10: data_wdata_o = buffer_q;
       default: data_wdata_o = '0;

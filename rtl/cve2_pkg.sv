@@ -17,13 +17,20 @@ package cve2_pkg;
   localparam logic [31:0] VRF_START_ADDR_FULL = 32'h00020000;
   
   // Vector register file states
-  typedef enum logic [3:0]{
+  typedef enum logic [4:0]{
     VRF_IDLE,
     VRF_START,
     VRF_INT_READ1,
     VRF_INT_READ2,
     VRF_INT_READ3,
     VRF_INT_WRITE,
+    VRF_MC_READ1,
+    VRF_MC_READ2,
+    VRF_MC_WRITE,
+    VRF_MC_READ,
+    VRF_MC_WRITE_SINGLE,
+    VRF_MC_READ_FIRST,
+    ERR_STATE,
     VRF_LOAD_SLIDE,
     VRF_READ,
     VRF_WRITE,

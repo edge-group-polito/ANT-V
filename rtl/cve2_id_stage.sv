@@ -136,6 +136,7 @@ module cve2_id_stage #(
   output logic [31:0]               vrf_wdata_o,
   output logic [3:0]                vrf_sel_operation_o,
   output logic                      vrf_memory_op_o,
+  output logic                      vrf_multicycle_op_o,
   output logic                      vrf_mult_ops_o,
   input  logic                      vector_done_i,
   // Slide instructions
@@ -702,6 +703,7 @@ module cve2_id_stage #(
     .vrf_we_o(vrf_we_id_o),
     .vrf_sel_operation_o(vrf_sel_operation_o),
     .vrf_memory_op_o(vrf_memory_op_o),
+    .vrf_multicycle_o(vrf_multicycle_op_o),
     .vrf_mult_ops_o(vrf_mult_ops_o),
     .vrf_slide_op_o(vrf_slide_op),
     .is_slide_up_o(is_slide_up),

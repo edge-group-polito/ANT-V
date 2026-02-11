@@ -96,6 +96,7 @@ module cve2_decoder #(
   output logic[3:0]             vrf_sel_operation_o,
   output logic                  vrf_memory_op_o,
   output logic                  vrf_mult_ops_o,
+  output logic                  vrf_multicycle_o,
   // Slide instructions
   output logic                  vrf_slide_op_o,
   output logic                  is_slide_up_o,
@@ -277,6 +278,7 @@ module cve2_decoder #(
     vl_keep_o             = 1'b0;
     vrf_memory_op_o       = 1'b0;
     vrf_mult_ops_o        = 1'b0;
+    vrf_multicycle_o       = 1'b0;
     unit_stride_o         = 1'b0;
     // slide instructions
     vrf_slide_op_o        = 1'b0;
@@ -848,12 +850,14 @@ module cve2_decoder #(
                 vrf_we_o = 1'b1;
                 vrf_sel_operation_o = 4'b1011;
                 vrf_mult_ops_o = 1'b1;
+                vrf_multicycle_o = 1'b1;
                 multdiv_operator_o    = MD_OP_MULH;
                 multdiv_signed_mode_o = 2'b11;
               end
               {6'b10_0111, 3'b110}: begin    // vmulh.vx
                 vrf_we_o = 1'b1;
                 vrf_sel_operation_o = 4'b1010;
+                vrf_multicycle_o = 1'b1;
                 multdiv_operator_o    = MD_OP_MULH;
                 multdiv_signed_mode_o = 2'b11;
               end
@@ -861,12 +865,14 @@ module cve2_decoder #(
                 vrf_we_o = 1'b1;
                 vrf_sel_operation_o = 4'b1011;
                 vrf_mult_ops_o = 1'b1;
+                vrf_multicycle_o = 1'b1;
                 multdiv_operator_o    = MD_OP_MULH;
                 multdiv_signed_mode_o = 2'b00;
               end
               {6'b10_0100, 3'b110}: begin    // vmulhu.vx
                 vrf_we_o = 1'b1;
                 vrf_sel_operation_o = 4'b1010;
+                vrf_multicycle_o = 1'b1;
                 multdiv_operator_o    = MD_OP_MULH;
                 multdiv_signed_mode_o = 2'b00;
               end
@@ -874,12 +880,14 @@ module cve2_decoder #(
                 vrf_we_o = 1'b1;
                 vrf_sel_operation_o = 4'b1011;
                 vrf_mult_ops_o = 1'b1;
+                vrf_multicycle_o = 1'b1;
                 multdiv_operator_o    = MD_OP_MULH;
                 multdiv_signed_mode_o = 2'b01;
               end
               {6'b10_0110, 3'b110}: begin    // vmulhsu.vx
                 vrf_we_o = 1'b1;
                 vrf_sel_operation_o = 4'b1010;
+                vrf_multicycle_o = 1'b1;
                 multdiv_operator_o    = MD_OP_MULH;
                 multdiv_signed_mode_o = 2'b01;
               end
@@ -1166,12 +1174,14 @@ module cve2_decoder #(
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1011;
               vrf_mult_ops_o = 1'b1;
+              vrf_multicycle_o = 1'b1;
               multdiv_operator_o    = MD_OP_MULH;
               multdiv_signed_mode_o = 2'b00;
             end
             {6'b10_0111, 3'b110}: begin    // xvmulh.vx
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1010;
+              vrf_multicycle_o = 1'b1;
               multdiv_operator_o    = MD_OP_MULH;
               multdiv_signed_mode_o = 2'b00;
             end
@@ -1179,12 +1189,14 @@ module cve2_decoder #(
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1011;
               vrf_mult_ops_o = 1'b1;
+              vrf_multicycle_o = 1'b1;
               multdiv_operator_o    = MD_OP_MULH;
               multdiv_signed_mode_o = 2'b00;
             end
             {6'b10_0100, 3'b110}: begin    // xvmulhu.vx
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1010;
+              vrf_multicycle_o = 1'b1;
               multdiv_operator_o    = MD_OP_MULH;
               multdiv_signed_mode_o = 2'b00;
             end
@@ -1192,12 +1204,14 @@ module cve2_decoder #(
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1011;
               vrf_mult_ops_o = 1'b1;
+              vrf_multicycle_o = 1'b1;
               multdiv_operator_o    = MD_OP_MULH;
               multdiv_signed_mode_o = 2'b00;
             end
             {6'b10_0110, 3'b110}: begin    // xvmulhsu.vx
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1010;
+              vrf_multicycle_o = 1'b1;
               multdiv_operator_o    = MD_OP_MULH;
               multdiv_signed_mode_o = 2'b00;
             end

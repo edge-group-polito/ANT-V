@@ -223,6 +223,7 @@ module cve2_core import cve2_pkg::*; #(
   logic [3:0] vrf_sel_operation; // Number of operands needed for current vector operation
   logic vrf_memory_op; // Signal indicating that the vector operation is a memory operation
   logic vrf_mult_ops; // Signal indicating that the VRF memory accesses will be interleaved
+  logic vrf_multicycle_op; // Signal indicating that the vector operation takes multiple cycles
   logic vector_done; // Signal indicating that the vector operation is done
   vsew_e vrf_vsew;
   vlmul_e vrf_vlmul;
@@ -586,6 +587,7 @@ module cve2_core import cve2_pkg::*; #(
     .vrf_wdata_o(vrf_wdata_id),
     .vrf_sel_operation_o(vrf_sel_operation),
     .vrf_memory_op_o(vrf_memory_op),
+    .vrf_multicycle_op_o(vrf_multicycle_op),
     .vrf_mult_ops_o(vrf_mult_ops),
     .vector_done_i(vector_done),
     // Slide instructions
@@ -1017,6 +1019,7 @@ module cve2_core import cve2_pkg::*; #(
       .memory_op_i(vrf_memory_op),
       .unit_stride_i(unit_stride),
       .mult_ops_i(vrf_mult_ops),
+      .multicycle_op_i(vrf_multicycle_op),
       .vector_done_o(vector_done),
       // Slide
       .slide_op_i(vrf_slide_op),
