@@ -47,6 +47,7 @@ module cve2_ex_block #(
 
   // Vector extension
   input  logic                  vec_instr_i,
+  input  logic                  vrf_if_stall_i,
   input  logic                  mem_op_i,
   input  logic [2:0]            vsew_i,
 
@@ -259,6 +260,7 @@ module cve2_ex_block #(
         .valid_o           (multdiv_valid),
         .multdiv_result_o  (multdiv_result),
         .vec_instr_i       (vec_instr_i),
+        .vrf_if_stall_i    (vrf_if_stall_i),
         .vsew_i            (vsew_i)
       );
     end else begin : gen_multdiv_fast_no_frac

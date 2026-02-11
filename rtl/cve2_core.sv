@@ -222,6 +222,7 @@ module cve2_core import cve2_pkg::*; #(
   logic [31:0] vrf_rdata_c; // Third read port of vector register file
   logic [3:0] vrf_sel_operation; // Number of operands needed for current vector operation
   logic vrf_memory_op; // Signal indicating that the vector operation is a memory operation
+  logic vrf_if_ex_stall;
   logic vrf_mult_ops; // Signal indicating that the VRF memory accesses will be interleaved
   logic vrf_multicycle_op; // Signal indicating that the vector operation takes multiple cycles
   logic vector_done; // Signal indicating that the vector operation is done
@@ -689,6 +690,7 @@ module cve2_core import cve2_pkg::*; #(
     // Vector extension
     .vec_instr_i(vrf_req),
     .mem_op_i(vrf_memory_op),
+    .vrf_if_stall_i(vrf_if_ex_stall), // stall signal from VRF interface for multicycle ops
     .vsew_i(vsew_q),
 
     // Outputs
@@ -1020,6 +1022,7 @@ module cve2_core import cve2_pkg::*; #(
       .unit_stride_i(unit_stride),
       .mult_ops_i(vrf_mult_ops),
       .multicycle_op_i(vrf_multicycle_op),
+      .ex_stall_o(vrf_if_ex_stall),
       .vector_done_o(vector_done),
       // Slide
       .slide_op_i(vrf_slide_op),
@@ -1051,6 +1054,7 @@ module cve2_core import cve2_pkg::*; #(
     assign agu_incr    = 1'b0;
     assign vector_done = 1'b0; //TODO: check
     assign vrf_lsu_req = 1'b0;
+    assign vrf_if_ex_stall = 1'b0;
   end
   if (RV32VX) begin : agu_if_block
     // AGU, translates the VR numbero to a memory address

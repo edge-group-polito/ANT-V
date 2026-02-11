@@ -48,6 +48,7 @@ module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
   output logic             valid_o,
 
   input  logic             vec_instr_i,
+  input  logic             vrf_if_stall_i,
   input  logic [2:0]       vsew_i
 );
 
@@ -300,7 +301,7 @@ module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
       unique case (mult_state_q)
 
         MULL: begin
-          if (operator_i != MD_OP_MULL) begin
+          if (operator_i != MD_OP_MULL && !vrf_if_stall_i) begin
             mac_res_d_sca = mac_res;
             mult_valid = 1'b0;
             mult_state_d = MULH;
