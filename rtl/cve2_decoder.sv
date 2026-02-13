@@ -1176,14 +1176,14 @@ module cve2_decoder #(
               vrf_mult_ops_o = 1'b1;
               vrf_multicycle_o = 1'b1;
               multdiv_operator_o    = MD_OP_MULH;
-              multdiv_signed_mode_o = 2'b00;
+              multdiv_signed_mode_o = 2'b11;
             end
             {6'b10_0111, 3'b110}: begin    // xvmulh.vx
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1010;
               vrf_multicycle_o = 1'b1;
               multdiv_operator_o    = MD_OP_MULH;
-              multdiv_signed_mode_o = 2'b00;
+              multdiv_signed_mode_o = 2'b11;
             end
             {6'b10_0100, 3'b010}: begin    // xvmulhu.vv
               vrf_we_o = 1'b1;
@@ -1206,14 +1206,14 @@ module cve2_decoder #(
               vrf_mult_ops_o = 1'b1;
               vrf_multicycle_o = 1'b1;
               multdiv_operator_o    = MD_OP_MULH;
-              multdiv_signed_mode_o = 2'b00;
+              multdiv_signed_mode_o = 2'b01;
             end
             {6'b10_0110, 3'b110}: begin    // xvmulhsu.vx
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1010;
               vrf_multicycle_o = 1'b1;
               multdiv_operator_o    = MD_OP_MULH;
-              multdiv_signed_mode_o = 2'b00;
+              multdiv_signed_mode_o = 2'b01;
             end
 
             // LOGICAL
