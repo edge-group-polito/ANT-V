@@ -1064,22 +1064,22 @@ module cve2_decoder #(
                 vrf_we_o = 1'b1;
                 vrf_sel_operation_o = 4'b1010;
               end
-              //{6'b01_1111, 3'b100}: begin // vmsgt.vx
-              //  vrf_we_o = 1'b1;
-              //  vrf_sel_operation_o = 4'b1010;
-              //end
-              //{6'b01_1111, 3'b011}: begin // vmsgt.vi
-              //  vrf_we_o = 1'b1;
-              //  vrf_sel_operation_o = 4'b1010;
-              //end
-              //{6'b01_1110, 3'b000}: begin // vmsgtu.vx
-              //  vrf_we_o = 1'b1;
-              //  vrf_sel_operation_o = 4'b1010;
-              //end
-              //{6'b01_1110, 3'b011}: begin // vmsgtu.vi
-              //  vrf_we_o = 1'b1;
-              //  vrf_sel_operation_o = 4'b1010;
-              //end
+              {6'b01_1111, 3'b100}: begin // vmsgt.vx
+                vrf_we_o = 1'b1;
+                vrf_sel_operation_o = 4'b1010;
+              end
+              {6'b01_1111, 3'b011}: begin // vmsgt.vi
+                vrf_we_o = 1'b1;
+                vrf_sel_operation_o = 4'b1010;
+              end
+              {6'b01_1110, 3'b000}: begin // vmsgtu.vx
+                vrf_we_o = 1'b1;
+                vrf_sel_operation_o = 4'b1010;
+              end
+              {6'b01_1110, 3'b011}: begin // vmsgtu.vi
+                vrf_we_o = 1'b1;
+                vrf_sel_operation_o = 4'b1010;
+              end
               // Move instructions
               {6'b01_0111, 3'b000}: begin    // vmv.v.v/vmerge.vvm
                 vrf_we_o = 1'b1;
@@ -1364,22 +1364,22 @@ module cve2_decoder #(
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1010;
             end
-            //{6'b01_1111, 3'b100}: begin // xvmsgt.vx
-            //  vrf_we_o = 1'b1;
-            //  vrf_sel_operation_o = 4'b1010;
-            //end
-            //{6'b01_1111, 3'b011}: begin // xvmsgt.vi
-            //  vrf_we_o = 1'b1;
-            //  vrf_sel_operation_o = 4'b1010;
-            //end
-            //{6'b01_1110, 3'b000}: begin //xvmsgtu.vx
-            //  vrf_we_o = 1'b1;
-            //  vrf_sel_operation_o = 4'b1010;
-            //end
-            //{6'b01_1110, 3'b011}: begin // xvmsgtu.vi
-            //  vrf_we_o = 1'b1;
-            //  vrf_sel_operation_o = 4'b1010;
-            //end
+            {6'b01_1111, 3'b100}: begin // xvmsgt.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1111, 3'b011}: begin // xvmsgt.vi
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1110, 3'b000}: begin //xvmsgtu.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
+            {6'b01_1110, 3'b011}: begin // xvmsgtu.vi
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1010;
+            end
             // Multiply-and-Accumulate instructions
             {6'b10_1101, 3'b010}: begin    // xvmacc.vv
               vrf_we_o = 1'b1;
@@ -2192,24 +2192,24 @@ module cve2_decoder #(
                 alu_op_a_mux_sel_o = OP_A_IMM;
                 imm_a_mux_sel_o    = IMM_A_Z;
               end
-              //{6'b01_1111, 3'b100}: begin // vmsgt.vx
-              //  alu_operator_o = ALU_GT;
-              //  alu_op_a_mux_sel_o = OP_A_REG_A;
-              //end
-              //{6'b01_1111, 3'b011}: begin // vmsgt.vi
-              //  alu_operator_o = ALU_GT;
-              //  alu_op_a_mux_sel_o = OP_A_IMM;
-              //  imm_a_mux_sel_o    = IMM_A_Z;
-              //end
-              //{6'b01_1110, 3'b000}: begin // vmsgtu.vx
-              //  alu_operator_o = ALU_GTU;
-              //  alu_op_a_mux_sel_o = OP_A_REG_A;
-              //end
-              //{6'b01_1110, 3'b011}: begin // vmsgtu.vi
-              //  alu_operator_o     = ALU_GTU;
-              //  alu_op_a_mux_sel_o = OP_A_IMM;
-              //  imm_a_mux_sel_o    = IMM_A_Z;
-              //end
+              {6'b01_1111, 3'b100}: begin // vmsgt.vx
+                alu_operator_o = ALU_SLT;
+                alu_op_a_mux_sel_o = OP_A_REG_A;
+              end
+              {6'b01_1111, 3'b011}: begin // vmsgt.vi
+                alu_operator_o = ALU_SLT;
+                alu_op_a_mux_sel_o = OP_A_IMM;
+                imm_a_mux_sel_o    = IMM_A_Z;
+              end
+              {6'b01_1110, 3'b000}: begin // vmsgtu.vx
+                alu_operator_o = ALU_SLTU;
+                alu_op_a_mux_sel_o = OP_A_REG_A;
+              end
+              {6'b01_1110, 3'b011}: begin // vmsgtu.vi
+                alu_operator_o     = ALU_SLTU;
+                alu_op_a_mux_sel_o = OP_A_IMM;
+                imm_a_mux_sel_o    = IMM_A_Z;
+              end
               // MAX
               {6'b00_0100, 3'b000}: begin    // vminu.vv
                 //alu_op_a_mux_sel_o = OP_A_VREG;
@@ -2494,24 +2494,24 @@ module cve2_decoder #(
               alu_op_a_mux_sel_o = OP_A_IMM;
               imm_a_mux_sel_o    = IMM_A_Z;
             end
-            //{6'b01_1111, 3'b100}: begin // xvmsgt.vx
-            //  alu_operator_o = ALU_GT;
-            //  alu_op_a_mux_sel_o = OP_A_REG_A;
-            //end
-            //{6'b01_1111, 3'b011}: begin // xvmsgt.vi
-            //  alu_operator_o = ALU_GT;
-            //  alu_op_a_mux_sel_o = OP_A_IMM;
-            //  imm_a_mux_sel_o    = IMM_A_Z;
-            //end
-            //{6'b01_1110, 3'b000}: begin // xvmsgtu.vx
-            //  alu_operator_o = ALU_GTU;
-            //  alu_op_a_mux_sel_o = OP_A_REG_A;
-            //end
-            //{6'b01_1110, 3'b011}: begin // xvmsgtu.vi
-            //  alu_operator_o     = ALU_GTU;
-            //  alu_op_a_mux_sel_o = OP_A_IMM;
-            //  imm_a_mux_sel_o    = IMM_A_Z;
-            //end
+            {6'b01_1111, 3'b100}: begin // xvmsgt.vx
+              alu_operator_o = ALU_SLT;
+              alu_op_a_mux_sel_o = OP_A_REG_A;
+            end
+            {6'b01_1111, 3'b011}: begin // xvmsgt.vi
+              alu_operator_o = ALU_SLT;
+              alu_op_a_mux_sel_o = OP_A_IMM;
+              imm_a_mux_sel_o    = IMM_A_Z;
+            end
+            {6'b01_1110, 3'b000}: begin // xvmsgtu.vx
+              alu_operator_o = ALU_SLTU;
+              alu_op_a_mux_sel_o = OP_A_REG_A;
+            end
+            {6'b01_1110, 3'b011}: begin // xvmsgtu.vi
+              alu_operator_o     = ALU_SLTU;
+              alu_op_a_mux_sel_o = OP_A_IMM;
+              imm_a_mux_sel_o    = IMM_A_Z;
+            end
             // MAX
             {6'b00_0100, 3'b000}: begin    // xvminu.vv
               alu_operator_o     = ALU_MINU;
