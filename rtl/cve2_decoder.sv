@@ -1072,7 +1072,7 @@ module cve2_decoder #(
                 vrf_we_o = 1'b1;
                 vrf_sel_operation_o = 4'b1010;
               end
-              {6'b01_1110, 3'b000}: begin // vmsgtu.vx
+              {6'b01_1110, 3'b100}: begin // vmsgtu.vx
                 vrf_we_o = 1'b1;
                 vrf_sel_operation_o = 4'b1010;
               end
@@ -1372,7 +1372,7 @@ module cve2_decoder #(
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1010;
             end
-            {6'b01_1110, 3'b000}: begin //xvmsgtu.vx
+            {6'b01_1110, 3'b100}: begin //xvmsgtu.vx
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1010;
             end
@@ -2201,7 +2201,7 @@ module cve2_decoder #(
                 alu_op_a_mux_sel_o = OP_A_IMM;
                 imm_a_mux_sel_o    = IMM_A_Z;
               end
-              {6'b01_1110, 3'b000}: begin // vmsgtu.vx
+              {6'b01_1110, 3'b100}: begin // vmsgtu.vx
                 alu_operator_o = ALU_SLTU;
                 alu_op_a_mux_sel_o = OP_A_REG_A;
               end
@@ -2503,7 +2503,7 @@ module cve2_decoder #(
               alu_op_a_mux_sel_o = OP_A_IMM;
               imm_a_mux_sel_o    = IMM_A_Z;
             end
-            {6'b01_1110, 3'b000}: begin // xvmsgtu.vx
+            {6'b01_1110, 3'b100}: begin // xvmsgtu.vx
               alu_operator_o = ALU_SLTU;
               alu_op_a_mux_sel_o = OP_A_REG_A;
             end
