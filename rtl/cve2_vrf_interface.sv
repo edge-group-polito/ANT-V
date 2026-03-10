@@ -9,7 +9,6 @@
 // specific language governing permissions and limitations under the License.
 //
 // File: cve2_vrf_interface.sv
-// Author: Alessio Caviglia
 
 
 

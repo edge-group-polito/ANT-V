@@ -9,7 +9,7 @@
 // specific language governing permissions and limitations under the License.
 //
 // File: cve2_dmem_switch.sv
-// Author: Alessio Caviglia
+
 
 module cve2_dmem_switch #(
 ) (

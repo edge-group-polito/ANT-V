@@ -9,7 +9,6 @@
 // specific language governing permissions and limitations under the License.
 //
 // File: cve2_lsu_interface.sv
-// Author: Alessio Caviglia
 
 
 module cve2_lsu_interface (

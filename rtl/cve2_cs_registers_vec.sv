@@ -9,7 +9,6 @@
 // specific language governing permissions and limitations under the License.
 //
 // File: cve2_cs_registers_vec.sv
-// Author: Alessio Caviglia, Flavia Guella
 
 
 module cve2_cs_registers_vec 

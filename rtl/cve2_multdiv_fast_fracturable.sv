@@ -2,7 +2,7 @@
 // Copyright 2018 ETH Zurich and University of Bologna, see also CREDITS.md.
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
-// Modified by Alessio Caviglia and Flavia Guella to support dotp (in single cycle mode only)
+
 
 
 `define OP_L 15:0
