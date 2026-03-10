@@ -5,132 +5,480 @@ CV32E20 is a fork of the [Ibex](https://github.com/lowRISC/ibex) core.
 Differently to Ibex, CV32E20 will target low cost as originally intended in the [Zero-riscy](https://doi.org/10.1109/PATMOS.2017.8106976) project.
 The core will be made compatible with the OpenHW Foundation OBI protocol, it will use the same sleep unit of CV32E4 family, and it will achieve TRL5 with the industrial-level verification [core-v-verif](https://github.com/openhwgroup/core-v-verif).
 
-# CV32E20 RISC-V Core
+# CVE2 Vector Extension Documentation
 
-CV32E20 is a production-quality open source 32-bit RISC-V CPU core written in
-SystemVerilog. The CPU core is heavily parametrizable and well-suited for
-embedded control applications. CV32E20 is being extensively verified and has
-seen multiple tape-outs. CV32E20 supports the Integer (I) or Embedded (E),
-Integer Multiplication and Division (M), and Compressed (C) extensions.
+This document provides a detailed description of the vector extension features implemented in the CVE2 RISC-V core. The implementation is based on a subset of the RISC-V Vector Extension (RVV) 1.0 specification, with additional custom instructions for lightweight, implementation-focused vector operations.
 
-The block diagram below shows the *small* parametrization with a 2-stage
-pipeline.
+---
 
-<p align="center"><img src="doc/03_reference/images/blockdiagram.drawio.svg" width="650"></p>
+## Table of Contents
 
-CV32E20 was initially developed as part of the [PULP platform](https://www.pulp-platform.org)
-under the name [&#34;Zero-riscy&#34;](https://doi.org/10.1109/PATMOS.2017.8106976), and has been
-contributed to [lowRISC](https://www.lowrisc.org) who maintains it and develops it further.
-It was further adopted by the OpenHW Foundation to work towards an improved industrialization use through extensive verification, with the aid of the [Core-V Verification](https://github.com/openhwgroup/cv32e20-dv) environment.
+1. [Overview](#1-overview)
+2. [Architecture](#2-architecture)
+   - 2.1 [Vector Register File (VRF)](#21-vector-register-file-vrf)
+   - 2.2 [Address Generation Unit (AGU)](#22-address-generation-unit-agu)
+   - 2.3 [Fracturable ALU](#23-fracturable-alu)
+   - 2.4 [Fracturable Multiplier](#24-fracturable-multiplier)
+   - 2.5 [Memory Interface](#25-memory-interface)
+3. [Vector Configuration](#3-vector-configuration)
+   - 3.1 [Configuration Instructions](#31-configuration-instructions)
+   - 3.2 [Vector CSRs](#32-vector-csrs)
+   - 3.3 [Supported SEW and LMUL Combinations](#33-supported-sew-and-lmul-combinations)
+4. [Supported Instructions](#4-supported-instructions)
+   - 4.1 [Vector Load Instructions](#41-vector-load-instructions)
+   - 4.2 [Vector Store Instructions](#42-vector-store-instructions)
+   - 4.3 [Vector Integer Arithmetic](#43-vector-integer-arithmetic)
+   - 4.4 [Vector Logical Instructions](#44-vector-logical-instructions)
+   - 4.5 [Vector Min/Max Instructions](#45-vector-minmax-instructions)
+   - 4.6 [Vector Multiply-Accumulate](#46-vector-multiply-accumulate)
+   - 4.7 [Vector Move/Merge Instructions](#47-vector-movemerge-instructions)
+   - 4.8 [Vector Slide Instructions](#48-vector-slide-instructions)
+5. [Custom Vector Instructions (VX)](#5-custom-vector-instructions-vx)
+   - 5.1 [Motivation](#51-motivation)
+   - 5.2 [Operand Encoding Strategy](#52-operand-encoding-strategy)
+   - 5.3 [Custom Instruction Opcodes](#53-custom-instruction-opcodes)
+   - 5.4 [Supported Custom Instructions](#54-supported-custom-instructions)
+6. [Implementation Details](#6-implementation-details)
+   - 6.1 [Parameters](#61-parameters)
+   - 6.2 [Pipeline Integration](#62-pipeline-integration)
+   - 6.3 [FSM States](#63-fsm-states)
+7. [Limitations and Unsupported Features](#7-limitations-and-unsupported-features)
+8. [Instruction Encoding Reference](#8-instruction-encoding-reference)
+9. [Build Procedure](#9-build-procedure)
 
-## Verification
+---
 
-The verification environment for the CVE2 is _not_ in this Repository.  There is a small, simple testbench here which is
-useful for experimentation only and should not be used to validate any changes to the RTL prior to pushing to the master
-branch of this repo.
+## 1. Overview
 
-The verification environment for this core as well as other cores in the OpenHW Foundation CORE-V family is at the
-[core-v-verif](https://github.com/openhwgroup/core-v-verif) repository on GitHub.
+The CVE2 vector-extended core, ANT-V, provides SIMD (Single Instruction, Multiple Data) capabilities to the CVE2 core. It implements a subset of the RISC-V Vector Extension 1.0 specification along with custom vector instructions (VX) designed for minimal hardware overhead.
+<img src="doc/logo_ant.png" alt="ANT-V logo" width="320">
 
-The Makefiles supported in the **core-v-verif** project automatically clone the appropriate version of the **cve2** RTL sources.
+### Key Features
 
-## Changelog
+| Feature | Description |
+|---------|-------------|
+| **VLEN** | Configurable vector register length (default: 4096 bits) |
+| **SEW** | Supported element widths: 8, 16, 32 bits |
+| **LMUL** | Supported values: 1/8, 1/4, 1/2, 1, 2, 4, 8 |
+| **Registers** | 32 vector registers (v0-v31) |
+| **Custom ISA** | Additional VX (custom vector) instructions |
 
-A changelog is generated automatically in the documentation from the individual pull requests.
-In order to enable automatic changelog generation within the documentation, the committer is required to label each pull request
-that touches any file in 'rtl' (or any of its subdirectories) with *Component:RTL* and label each pull request that touches any file in
-'docs' (or any of its subdirectories) with *Component:Doc*. Pull requests that are not labeled or labeled with *ignore-for-release* are
-ignored for the changelog generation.
+### Design Philosophy
 
-Only the person who actually performs the merge can add these labels (you need committer rights). The changelog flow only works if at most
-1 label is applied and therefore pull requests that touch both RTL and documentation files in the same pull request are not allowed.
+The CVE2 vector extension is **lightweight and implementation-driven**, prioritizing:
+- Minimal decoder and pipeline overhead
+- Reuse of existing scalar infrastructure
+- Fixed 32-bit instruction width
+- Memory-mapped vector register file access
 
-## Configuration
+---
 
-<!-- TODO: This section and numbers need to be updated considering that the example code was removed -->
+## 2. Architecture
 
-CV32E20 offers several configuration parameters to meet the needs of various application scenarios.
-The options include different choices for the architecture of the multiplier unit, as well as a range of performance and security features.
-The table below indicates performance, area, and verification status for a few selected configurations.
-These are configurations on which OpenHW is focusing for performance evaluation and design verification (see [supported configs](cve2_configs.yaml)).
+![CVE2 Vector Extension Block Diagram](doc/Block_diagram.png)
 
-| Config                            | "micro" | "small"               |
-| --------------------------------- | ------- | --------------------- |
-| Features                          | RV32EC  | RV32IMC, 3 cycle mult |
-| Performance (CoreMark/MHz)        | 0.904   | 2.47                  |
-| Area - Yosys (kGE)                | 16.85   | 26.60                 |
-| Area - Commercial (estimated kGE) | ~15     | ~24                   |
-| Verification status               |         |                       |
+### 2.1 Vector Register File (VRF)
 
-Notes:
+The Vector Register File is implemented as a memory-mapped region in the data address space.
 
-* Performance numbers are based on CoreMark running on the CV32E20 Simple System [platform](examples/simple_system/README.md).
-  Note that different ISAs (use of B and C extensions) give the best results for different configurations.
-  See the [Benchmarks README](examples/sw/benchmarks/README.md) for more information.
-* Yosys synthesis area numbers are based on the CV32E20 basic synthesis [flow](syn/README.md) using the latch-based register file.
-* Commercial synthesis area numbers are a rough estimate of what might be achievable with a commercial synthesis flow and technology library.
-* For comparison, the original "zero-riscy" core yields an area of 23.14kGE using our Yosys synthesis flow.
-* Verification status is a rough guide to the overall maturity of a particular configuration.
-  Green indicates that verification is close to complete.
-  Amber indicates that some verification has been performed, but the configuration is still experimental.
-  Red indicates a configuration with minimal/no verification.
-<!-- * v.1.0.0 of the RISC-V Bit-Manipulation Extension is supported as well as the remaining sub-extensions of draft v.0.93 of the bitmanip spec.
-  The latter is *not ratified* and there may be changes before ratification.
-  See [Standards Compliance](https://ibex-core.readthedocs.io/en/latest/01_overview/compliance.html) in the Ibex documentation for more information. -->
+| Parameter | Value |
+|-----------|-------|
+| **VLENb** | 4096 bits (configurable) |
+| **Start Address** | `0x00020000` (configurable via `VRF_START_ADDR`) |
+| **Access Width** | 32 bits (PIPE_WIDTH) |
+| **Number of Registers** | 32 (v0-v31) |
 
-## Documentation (to be updated)
+The VRF interface module (`cve2_vrf_interface.sv`) manages all vector register file operations through a finite state machine (FSM).
 
-The CVE2 documentation can be
-[read online at ReadTheDocs](https://docs.openhwgroup.org/projects/cve2-user-manual/en/latest/). It is also contained in
-the `doc` folder of this repository.
+### 2.2 Address Generation Unit (AGU)
 
-<!-- ## Examples
+The AGU (`cve2_agu.sv`) manages address calculation for vector register file accesses:
 
-The CVE2 repository includes [Simple System](examples/simple_system/README.md).
-This is an intentionally simple integration of CV32E20 with a basic system that targets simulation.
-It is intended to provide an easy way to get bare metal binaries running on CV32E20 in simulation. -->
+- Generates addresses for source registers (rs1, rs2) and destination register (rd)
+- Supports automatic increment for sequential element access
+- Handles slide operation address offsets
+- Supports LMUL-based register grouping
 
-## Contributing
+### 2.3 Fracturable ALU
 
-We highly appreciate community contributions. We are currently using the lowRISC contribution guide.
-To ease our work of reviewing your contributions,
-please:
+The fracturable adder (`cve2_fracturable_adder.sv`) enables SIMD operations on sub-word elements:
 
-* Create your own fork to commit your changes and then open a Pull Request to the **dev** branch.
-* Split large contributions into smaller commits addressing individual changes or bug fixes. Do not
-  mix unrelated changes into the same commit!
-* Do not mix updates within the 'rtl' directory with updates within the 'docs' directory into the same pull request.
-* Write meaningful commit messages. For more information, please check out the [CVE2 contribution guide](CONTRIBUTING.md).
-* If asked to modify your changes, do fix up your commits and rebase your branch to maintain a
-  clean history.
-* If the PR gets accepted and merged into the **dev** branch, an action is triggered automatically to check whether the changes are logically equivalent to the frozen RTL on a given set of parameters. If the changes are logically equivalent, the **dev** branch is automatically merged into the **master** branch. Otherwise, we need to investigate manually. If a bug is found, thus the changes are not logically equivalent, we follow the procedure documented [here](https://docs.openhwgroup.org/projects/cv32e40p-user-manual/core_versions.html).
+| SEW | Operation |
+|-----|-----------|
+| 8-bit | 4 parallel 8-bit additions/subtractions |
+| 16-bit | 2 parallel 16-bit additions/subtractions |
+| 32-bit | 1 32-bit addition/subtraction |
 
-For more details on how this is implemented, have a look at this [page](https://github.com/openhwgroup/cv32e40p/blob/master/.github/workflows/aws_cv32e40p.md).
+The control of carry propagation between sub-word boundaries enables efficient element-wise operations.
 
-When contributing SystemVerilog source code, please try to be consistent and adhere to [the lowRISC Verilog
-coding style guide](https://github.com/lowRISC/style-guides/blob/master/VerilogCodingStyle.md).
+### 2.4 Fracturable Multiplier
 
-To get started, please check out the [&#34;Good First Issue&#34;
- list](https://github.com/openhwgroup/cv32e40p/issues?q=is%3Aissue+is%3Aopen+-label%3Astatus%3Aresolved+label%3A%22good+first+issue%22).
+The fracturable multiplier (`cve2_multdiv_fast_fracturable.sv`) supports:
 
-The RTL code has been formatted with [&#34;Verible&#34;](https://github.com/google/verible) v0.0-1149-g7eae750.
-Run `./util/format-verible` to format all the files.
+| SEW | Operation |
+|-----|-----------|
+| 8-bit | Four 8-bit multiplications in parallel |
+| 16-bit | Two 16-bit multiplications |
+| 32-bit | Single 32-bit multiplication |
 
-## Issues and Troubleshooting
+The multiplier reuses the existing three 17-bit multiplier kernels with additional logic for vector operations.
 
-If you find any problems or issues with CVE2 or the documentation, please check out the [issue
- tracker](https://github.com/openhwgroup/cve2/issues) and create a new issue if your problem is
-not yet tracked.
+### 2.5 Memory Interface
+
+Two key modules handle vector memory operations:
+
+#### Data Memory Switch (`cve2_dmem_switch.sv`)
+- Arbitrates data memory access between the LSU (scalar) and VRF (vector)
+- Vector operations take priority when active
+- Manages grant and response signals for both interfaces
+
+#### LSU Interface (`cve2_lsu_interface.sv`)
+- Handles address generation for vector memory operations
+- Supports unit-stride and constant-stride access patterns
+- Manages byte-enable signals for partial word access
+
+---
+
+## 3. Vector Configuration
+
+### 3.1 Configuration Instructions
+
+| Instruction | Description |
+|-------------|-------------|
+| `vsetvli rd, rs1, vtypei` | Set VL and vtype from scalar register and immediate |
+| `vsetivli rd, uimm, vtypei` | Set VL and vtype using immediates |
+| `vsetvl rd, rs1, rs2` | Set VL and vtype from scalar registers |
+
+#### Special Encoding Cases
+
+| Condition | Behavior |
+|-----------|----------|
+| `rs1 = x0, rd ≠ x0` | Set `vl = VLMAX` |
+| `rs1 = x0, rd = x0` | Keep current `vl` value |
+
+### 3.2 Vector CSRs
+
+The vector CSRs are managed by `cve2_cs_registers_vec.sv`:
+
+| CSR Field | Bits | Description |
+|-----------|------|-------------|
+| `vsew` | [5:3] | Selected Element Width encoding |
+| `vlmul` | [2:0] | Vector Length Multiplier encoding |
+| `vma` | [7] | Vector Mask Agnostic |
+| `vta` | [6] | Vector Tail Agnostic |
+| `vill` | N/A | Illegal configuration flag |
+| `vl` | 32 bits | Vector Length register |
+
+### 3.3 Supported SEW and LMUL Combinations
+
+#### SEW Encodings
+
+| vsew[2:0] | SEW (bits) |
+|-----------|------------|
+| 000 | 8 |
+| 001 | 16 |
+| 010 | 32 |
+| 111 | Invalid |
+
+#### LMUL Encodings
+
+| vlmul[2:0] | LMUL |
+|------------|------|
+| 000 | 1 |
+| 001 | 2 |
+| 010 | 4 |
+| 011 | 8 |
+| 101 | 1/8 |
+| 110 | 1/4 |
+| 111 | 1/2 |
+
+#### Valid Combinations
+
+| SEW | Valid LMUL Values |
+|-----|-------------------|
+| 8-bit | 1/4, 1/2, 1, 2, 4, 8 |
+| 16-bit | 1/2, 1, 2, 4, 8 |
+| 32-bit | 1, 2, 4, 8 |
+
+**Note:** Fractional LMUL is limited to combinations where `SEW/LMUL ≤ ELEN`.
+
+---
+
+## 4. Supported Instructions
+
+### 4.1 Vector Load Instructions
+
+#### Standard Unit-Stride Loads
+
+| Instruction | funct6 | Description |
+|-------------|--------|-------------|
+| `vle8.v vd, (rs1)` | N/A | Load 8-bit elements |
+| `vle16.v vd, (rs1)` | N/A | Load 16-bit elements |
+| `vle32.v vd, (rs1)` | N/A | Load 32-bit elements |
+
+#### Constant-Stride Loads
+
+| Instruction | Description |
+|-------------|-------------|
+| `vlse8.v vd, (rs1), rs2` | Strided load of 8-bit elements |
+| `vlse16.v vd, (rs1), rs2` | Strided load of 16-bit elements |
+| `vlse32.v vd, (rs1), rs2` | Strided load of 32-bit elements |
+
+**Supported EEW for memory operations:** 8-bit, 16-bit, 32-bit
+
+### 4.2 Vector Store Instructions
+
+#### Standard Unit-Stride Stores
+
+| Instruction | Description |
+|-------------|-------------|
+| `vse8.v vs3, (rs1)` | Store 8-bit elements |
+| `vse16.v vs3, (rs1)` | Store 16-bit elements |
+| `vse32.v vs3, (rs1)` | Store 32-bit elements |
+
+#### Constant-Stride Stores
+
+| Instruction | Description |
+|-------------|-------------|
+| `vsse8.v vs3, (rs1), rs2` | Strided store of 8-bit elements |
+| `vsse16.v vs3, (rs1), rs2` | Strided store of 16-bit elements |
+| `vsse32.v vs3, (rs1), rs2` | Strided store of 32-bit elements |
+
+### 4.3 Vector Integer Arithmetic
+
+#### Addition
+
+| Instruction | funct6 | funct3 | Description |
+|-------------|--------|--------|-------------|
+| `vadd.vv vd, vs2, vs1` | 000000 | 000 | Vector + Vector |
+| `vadd.vx vd, vs2, rs1` | 000000 | 100 | Vector + Scalar |
+| `vadd.vi vd, vs2, imm` | 000000 | 011 | Vector + Immediate |
+
+#### Subtraction
+
+| Instruction | funct6 | funct3 | Description |
+|-------------|--------|--------|-------------|
+| `vsub.vv vd, vs2, vs1` | 000010 | 000 | Vector − Vector |
+| `vsub.vx vd, vs2, rs1` | 000010 | 100 | Vector − Scalar |
+
+#### Multiplication
+
+| Instruction | funct6 | funct3 | Description |
+|-------------|--------|--------|-------------|
+| `vmul.vv vd, vs2, vs1` | 100101 | 010 | Vector × Vector |
+| `vmul.vx vd, vs2, rs1` | 100101 | 110 | Vector × Scalar |
+
+### 4.4 Vector Logical Instructions
+
+| Operation | .vv (funct6/funct3) | .vx (funct6/funct3) | .vi (funct6/funct3) |
+|-----------|---------------------|---------------------|---------------------|
+| AND | 001001/000 | 001001/100 | 001001/011 |
+| OR | 001010/000 | 001010/100 | 001010/011 |
+| XOR | 001011/000 | 001011/100 | 001011/011 |
+
+### 4.5 Vector Min/Max Instructions
+
+| Instruction | funct6 | funct3 | Description |
+|-------------|--------|--------|-------------|
+| `vminu.vv` | 000100 | 000 | Unsigned minimum (vector-vector) |
+| `vminu.vx` | 000100 | 100 | Unsigned minimum (vector-scalar) |
+| `vmin.vv` | 000101 | 000 | Signed minimum (vector-vector) |
+| `vmin.vx` | 000101 | 100 | Signed minimum (vector-scalar) |
+| `vmaxu.vv` | 000110 | 000 | Unsigned maximum (vector-vector) |
+| `vmaxu.vx` | 000110 | 100 | Unsigned maximum (vector-scalar) |
+| `vmax.vv` | 000111 | 000 | Signed maximum (vector-vector) |
+| `vmax.vx` | 000111 | 100 | Signed maximum (vector-scalar) |
+
+### 4.6 Vector Multiply-Accumulate
+
+| Instruction | funct6 | funct3 | Description |
+|-------------|--------|--------|-------------|
+| `vmacc.vv vd, vs1, vs2` | 101101 | 010 | vd = vs1 × vs2 + vd |
+| `vmacc.vx vd, rs1, vs2` | 101101 | 110 | vd = rs1 × vs2 + vd |
+
+
+### 4.7 Vector Move Instructions
+
+| Instruction | funct6 | funct3 | Description |
+|-------------|--------|--------|-------------|
+| `vmv.v.v vd, vs1` | 010111 | 000 | Copy vector register |
+| `vmv.v.x vd, rs1` | 010111 | 100 | Splat scalar to vector |
+| `vmv.v.i vd, imm` | 010111 | 011 | Splat immediate to vector |
+
+### 4.8 Vector Slide Instructions
+
+| Instruction | funct6 | funct3 | Description |
+|-------------|--------|--------|-------------|
+| `vslideup.vx vd, vs2, rs1` | 001110 | 100 | Slide elements up by scalar |
+| `vslideup.vi vd, vs2, uimm` | 001110 | 011 | Slide elements up by immediate |
+| `vslidedown.vx vd, vs2, rs1` | 001111 | 100 | Slide elements down by scalar |
+| `vslidedown.vi vd, vs2, uimm` | 001111 | 011 | Slide elements down by immediate |
+
+---
+
+## 5. Custom Vector Instructions (VX)
+
+### 5.1 Motivation
+
+The custom VX instructions provide an alternative encoding for vector operations designed to:
+
+- Avoid complexity of standard RVV 1.0 instruction encoding
+- Reuse existing scalar decode and pipeline infrastructure
+- Preserve fixed 32-bit instruction width
+- Minimize hardware and decoder overhead
+
+### 5.2 Operand Encoding Strategy
+
+Unlike standard RVV, **vector register indices are not encoded in the instruction** for VX instructions.
+
+Instead:
+- The instruction is identified as a vector operation via the `vx_instr` signal
+- Vector register indices are stored **inside a scalar register**
+- The scalar register `rs2` (`rf_rdata_b`) carries all vector operand indices
+
+#### Vector Register Address Extraction
+
+```systemverilog
+assign vrf_raddr_a  = (vx_instr) ? rf_rdata_b[20:16] : rf_raddr_a;
+assign vrf_raddr_b  = (vx_instr) ? rf_rdata_b[12:8]  : rf_raddr_b;
+assign vrf_waddr_wb = (vx_instr) ? rf_rdata_b[4:0]   : rf_waddr_wb;
+```
+
+| Bits | Field |
+|------|-------|
+| [20:16] | vs1 (source vector 1) |
+| [12:8] | vs2 (source vector 2) |
+| [4:0] | vd (destination vector) |
+
+### 5.3 Custom Instruction Opcodes
+
+| Opcode | Value | Description |
+|--------|-------|-------------|
+| `OPCODE_OP_VX` | `7'h5b` | Custom arithmetic vector ops |
+| `OPCODE_LOAD_VX` | `7'h0b` | Custom vector load |
+| `OPCODE_STORE_VX` | `7'h2b` | Custom vector store |
+
+These use the RISC-V custom-0, custom-1, and custom-2 opcode spaces.
+
+### 5.4 Supported Custom Instructions
+
+#### Custom Load/Store
+
+| Instruction | Description |
+|-------------|-------------|
+| `vxle.v` | Custom unit-stride vector load |
+| `vxse.v` | Custom unit-stride vector store |
+
+**Note:** Only unit-stride operations are supported; no indexed or segmented access.
+
+#### Custom Arithmetic Operations
+
+All standard vector arithmetic operations have custom VX equivalents:
+
+| Category | Custom Instructions |
+|----------|---------------------|
+| Add/Sub | `xvadd.vv/vx/vi`, `xvsub.vv/vx` |
+| Multiply | `xvmul.vv/vx` |
+| Logical | `xvand.vv/vx/vi`, `xvor.vv/vx/vi`, `xvxor.vv/vx/vi` |
+| Min/Max | `xvmin[u].vv/vx`, `xvmax[u].vv/vx` |
+| MAC | `xvmacc.vv/vx` |
+| Move | `xvmv.v.v/v.x/v.i` |
+| Slide | `xvslideup.vx/vi`, `xvslidedown.vx/vi` |
+
+---
+
+## 6. Implementation Details
+
+### 6.1 Parameters
+
+The vector extension is controlled by the following top-level parameters:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `RV32VX` | `1'b0` | Enable vector extension |
+| `VLEN` | `VLENb` (4096) | Vector register length in bits |
+| `VRF_START_ADDR` | `0x00020000` | Base address of VRF in memory map |
+
+Additional package constants from `cve2_pkg.sv`:
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `VLENb` | `32'd4096` | Vector register length in bits |
+| `VAddrWidth` | `$clog2(VLENb/8)` | Address width for VRF |
+| `VRF_START_ADDR_FULL` | `32'h00020000` | Default VRF base address |
+
+
+## 7. Limitations and Unsupported Features
+
+The following RVV 1.0 features are **NOT supported**:
+
+| Feature | Status |
+|---------|--------|
+| Indexed memory operations | Not implemented |
+| Segmented memory operations | Not implemented |
+| Fixed-point operations | Not implemented |
+| Floating-point operations | Not implemented |
+| Vector reduction operations | Not implemented |
+| Vector mask operations (partial) | Limited support |
+| Widening/narrowing operations | Not implemented |
+| `vstart` CSR | Not fully implemented |
+| `vxrm`, `vxsat` CSRs | Not implemented |
+| 64-bit SEW | Not supported (RV32 base) |
+---
+
+
+## 8. Instruction Encoding Reference
+
+### Standard Vector Instruction Format (OPCODE_OP_V = 0x57)
+
+```
+31    26 25 24  20 19  15 14  12 11   7 6    0
+[funct6][vm][vs2  ][vs1  ][funct3][vd  ][opcode]
+```
+
+### Vector Load Format (OPCODE_LOAD_V = 0x07)
+
+```
+31 29 28 27 26 25 24  20 19  15 14  12 11   7 6    0
+[nf ][mew][mop][vm][lumop][rs1  ][width][vd  ][opcode]
+```
+
+### Vector Store Format (OPCODE_STORE_V = 0x27)
+
+```
+31 29 28 27 26 25 24  20 19  15 14  12 11   7 6    0
+[nf ][mew][mop][vm][sumop][rs1  ][width][vs3 ][opcode]
+```
+
+### Custom VX Arithmetic Format (OPCODE_OP_VX = 0x5b)
+
+```
+31    26 25 24  20 19  15 14  12 11   7 6    0
+[funct6][vm][rs2  ][rs1  ][funct3][rd  ][opcode]
+```
+
+Where vector register indices are encoded in `rs2` register value at runtime.
+
+---
+
+## 9. Build Procedure
+
+The CVE2 project uses [FuseSoC](https://fusesoc.readthedocs.io/) as its core package manager and build system. All cores are described by `.core` files (CAPI2 format) at the root of the repository.
+
+### Building the Verilator Model
+
+The Verilator simulation model is built through the `sim` target of the `cve2_riscv_compliance` core. FuseSoC invokes Verilator in `cc` mode, which compiles the SystemVerilog design and C++ testbench into a C++ model.
+
+This is also available via the Makefile shorthand:
+
+```bash
+make compile_verilator
+```
 
 ## License
 
 Unless otherwise noted, everything in this repository is covered by the Apache
 License, Version 2.0 (see LICENSE for full text).
-
-## Credits
-
-Many people have contributed to CVE2 and its predecessor projects through the years. Please have a look at
-the [credits file](CREDITS.md) and the commit history for more information.
 
 ## References
 

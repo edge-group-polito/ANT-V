@@ -43,7 +43,8 @@ This document provides a detailed description of the vector extension features i
 
 ## 1. Overview
 
-The CVE2 vector extension (`RV32VX`) provides SIMD (Single Instruction, Multiple Data) capabilities to the CVE2 core. It implements a subset of the RISC-V Vector Extension 1.0 specification along with custom vector instructions (VX) designed for minimal hardware overhead.
+The CVE2 vector-extended core, ANT-V, provides SIMD (Single Instruction, Multiple Data) capabilities to the CVE2 core. It implements a subset of the RISC-V Vector Extension 1.0 specification along with custom vector instructions (VX) designed for minimal hardware overhead.
+<img src="logo_ant.png" alt="ANT-V logo" width="320">
 
 ### Key Features
 
@@ -66,6 +67,7 @@ The CVE2 vector extension is **lightweight and implementation-driven**, prioriti
 ---
 
 ## 2. Architecture
+![CVE2 Vector Extension Block Diagram](Block_diagram.png)
 
 ### 2.1 Vector Register File (VRF)
 
