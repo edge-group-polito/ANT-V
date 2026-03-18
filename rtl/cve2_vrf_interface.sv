@@ -816,9 +816,12 @@ module cve2_vrf_interface #(
             agu_incr_o = 1'b1;
             if (!first_iteration_q && !last_iteration_q) begin // TODO: farlo diventare piu carino, togliere latch dove sta?
               num_iterations_d = num_iterations_q - 1;
-              if (num_iterations_q == (no_offset ? 1 : 0))
+              if (num_iterations_q == (no_offset ? 1 : 0)) begin
                 last_iteration_d = 1'b1;
-              ex_stall_o = 1'b1;
+                ex_stall_o = 1'b0;
+              end else begin
+                ex_stall_o = 1'b1;
+              end
               next_mc_mux_sel = ~curr_mc_mux_sel;
               next_mc_rd_mux_sel = ~curr_mc_rd_mux_sel;
               next_mc_rd_demux_sel = ~curr_mc_rd_demux_sel;
@@ -844,24 +847,30 @@ module cve2_vrf_interface #(
     end
 
     VRF_MC_WRITE: begin
-      // if next operation is READ RS2
-      if (sel_operation_i[1]) begin
-        data_req_o = 1'b1;
-        if (sel_operation_i[0]) agu_get_rs1_o = 1'b1;
-        if (data_gnt_i) begin
-          if (sel_operation_i[0]) begin
-            agu_incr_o = 1'b1;
-          end
-          //if (num_iterations_q == (no_offset ? 1 : 0)) last_iteration_d = 1'b1;
-          //else num_iterations_d = num_iterations_q - 1;
-          vrf_next_state = VRF_MC_READ1;
-        end else begin
-          //num_iterations_d = num_iterations_q;   // if the operation wasn't accepted we need to repeat it
-          vrf_next_state = VRF_MC_WRITE;
-        end
-      // illegal operation, go back to idle
+      if (last_iteration_q) begin            // it's equal zero to take into account the first iteration
+        vector_done_o = 1'b1;
+        num_iterations_d = '0;
+        vrf_next_state = VRF_IDLE;
       end else begin
-        vrf_next_state = ERR_STATE;
+        // if next operation is READ RS2
+        if (sel_operation_i[1]) begin
+          data_req_o = 1'b1;
+          if (sel_operation_i[0]) agu_get_rs1_o = 1'b1;
+          if (data_gnt_i) begin
+            if (sel_operation_i[0]) begin
+              agu_incr_o = 1'b1;
+            end
+            //if (num_iterations_q == (no_offset ? 1 : 0)) last_iteration_d = 1'b1;
+            //else num_iterations_d = num_iterations_q - 1;
+            vrf_next_state = VRF_MC_READ1;
+          end else begin
+            //num_iterations_d = num_iterations_q;   // if the operation wasn't accepted we need to repeat it
+            vrf_next_state = VRF_MC_WRITE;
+          end
+        // illegal operation, go back to idle
+        end else begin
+          vrf_next_state = ERR_STATE;
+        end
       end
     end
     // vx and vi instructions
