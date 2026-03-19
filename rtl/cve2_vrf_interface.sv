@@ -312,7 +312,11 @@ module cve2_vrf_interface #(
         // NEXT STATE SELECTION
         first_iteration_d = 1'b1;
         slide_first_write_d = 1'b1;
-        
+        next_mc_demux_sel = 1'b0;
+        next_mc_mux_sel = 1'b0;
+        next_mc_rd_mux_sel = 1'b0;
+        next_mc_rd_demux_sel = 1'b0;
+        first_mc_write_d = 1'b0;
         if (memory_op_i == 0) begin                   // ARITHMETIC OPERATION
           if (mult_ops_i) begin
             data_req_o = 1'b1;
@@ -324,9 +328,9 @@ module cve2_vrf_interface #(
                 vrf_next_state = VRF_MC_READ1;
                 first_mc_write_d = 1'b1;
                 next_mc_demux_sel = 1'b0;
-                next_mc_mux_sel = 1'b0;
-                next_mc_rd_mux_sel = 1'b0;
-                next_mc_rd_demux_sel = 1'b0;
+                //next_mc_mux_sel = 1'b0;
+                //next_mc_rd_mux_sel = 1'b0;
+                //next_mc_rd_demux_sel = 1'b0;
               end else 
                 vrf_next_state = VRF_INT_READ1;
             end else
@@ -342,10 +346,10 @@ module cve2_vrf_interface #(
                 else if (multicycle_op_i) begin
                   vrf_next_state = VRF_MC_READ;
                   first_mc_write_d = 1'b1;
-                  next_mc_demux_sel = 1'b0;
-                  next_mc_mux_sel = 1'b0;
-                  next_mc_rd_mux_sel = 1'b0;
-                  next_mc_rd_demux_sel = 1'b0;
+                  //next_mc_demux_sel = 1'b0;
+                  //next_mc_mux_sel = 1'b0;
+                  //next_mc_rd_mux_sel = 1'b0;
+                  //next_mc_rd_demux_sel = 1'b0;
                 end
                 else vrf_next_state = VRF_READ;
               end else vrf_next_state = VRF_START;
