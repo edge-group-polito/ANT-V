@@ -3,7 +3,7 @@ CAPI=2:
 # Copyright lowRISC contributors.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-name: "polito:cve2:cve2_top:0.1"
+name: "xxx:cve2:cve2_top:0.1"
 description: "A single-issue 2-stage pipeline embedded class of RISC-V CPUs"
 
 filesets:
@@ -11,7 +11,7 @@ filesets:
     depend:
       - openhwgroup:cve2:cve2_pkg
       - openhwgroup:cve2:cve2_core
-      - polito:cve2:cve2_vector:0.1
+      - xxx:cve2:cve2_vector:0.1
       - "!SYNTHESIS ? (openhwgroup:cve2:cve2_clock_gate)"
       - "!SYNTHESIS ? (lowrisc:prim:buf)"
       - "!SYNTHESIS ? (lowrisc:prim:clock_mux2)"
@@ -37,7 +37,7 @@ filesets:
 
   files_tsmc65:
     depend:
-      - polito:cve2:prim-tsmc65
+      - xxx:cve2:prim-tsmc65
 
 parameters:
   RVFI:

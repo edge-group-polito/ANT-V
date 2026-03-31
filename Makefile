@@ -79,7 +79,7 @@ build-riscv-compliance:
 # 		--raminit=$(simple-system-program)
 
 compile_verilator:
-	fusesoc --cores-root . run --no-export --target=lint --tool=verilator --setup --build polito:cve2:cve2_top:0.1 2>&1 | tee buildsim.log
+	fusesoc --cores-root . run --no-export --target=lint --tool=verilator --setup --build xxx:cve2:cve2_top:0.1 2>&1 | tee buildsim.log
 
 # # Arty A7 FPGA example
 # # Use the following targets (depending on your hardware):
@@ -188,7 +188,7 @@ endif
 .PHONY: syn-core
 syn-core: .check-dc
 	mkdir -p $(SYN_NETLIST_DIR)
-	fusesoc --cores-root . run --build-root $(CVE2_BUILD_DIR) --target=asic_synthesis --tool=design_compiler --setup --build --flag=cve2_synth polito:cve2:cve2_top 2>&1 | tee buildsim.log
+	fusesoc --cores-root . run --build-root $(CVE2_BUILD_DIR) --target=asic_synthesis --tool=design_compiler --setup --build --flag=cve2_synth xxx:cve2:cve2_top 2>&1 | tee buildsim.log
 	cp $(SYN_RPT_DIR)/netlist.v $(SYN_NETLIST_DIR)/netlist.v
 	cp $(SYN_RPT_DIR)/netlist.sdc $(SYN_NETLIST_DIR)/netlist.sdc
 
