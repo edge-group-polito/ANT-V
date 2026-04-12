@@ -879,10 +879,6 @@ module cve2_vrf_interface #(
     end
     // vx and vi instructions
     VRF_MC_READ: begin
-      if (data_rvalid_i) begin
-        rs2_en = 1'b1;
-        next_mc_demux_sel = ~curr_mc_demux_sel;
-      end
       data_req_o = 1'b1;
       agu_get_rs2_o = 1'b1;
       if (data_gnt_i) begin
@@ -895,6 +891,10 @@ module cve2_vrf_interface #(
         if (!first_iteration_q) begin
           vrf_next_state = VRF_MC_WRITE_SINGLE;
         end else begin
+          if (data_rvalid_i) begin
+            rs2_en = 1'b1;
+            next_mc_demux_sel = ~curr_mc_demux_sel;
+          end
           first_iteration_d = 1'b0;
           ex_stall_o = 1'b1;
           vrf_next_state = VRF_MC_READ_FIRST;
@@ -908,6 +908,7 @@ module cve2_vrf_interface #(
     VRF_MC_READ_FIRST: begin
       if (data_rvalid_i) begin
         rs2_en = 1'b1;
+        next_mc_demux_sel = ~curr_mc_demux_sel;
         vrf_next_state = VRF_MC_WRITE_SINGLE;
       end else begin
         vrf_next_state = VRF_MC_READ_FIRST;
@@ -918,6 +919,12 @@ module cve2_vrf_interface #(
       data_req_o = 1'b1;
       data_we_o = 1'b1;
       agu_get_rd_o = 1'b1;
+      // Read request was granted for sure in previous state, so the rvalid will arrive here (OBI)
+      if (data_rvalid_i) begin
+        // Sample data from previous read request
+        rs2_en = 1'b1;
+        next_mc_demux_sel = ~curr_mc_demux_sel;
+      end
       if (data_gnt_i) begin
         agu_incr_o = 1'b1;
         vrf_next_state = VRF_MC_READ;
