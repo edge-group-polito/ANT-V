@@ -727,7 +727,7 @@ module cve2_id_stage #(
   if (RV32VX) begin
     assign vrf_req_o = vrf_req & instr_executing;
     assign vrf_slide_op_o = vrf_slide_op & instr_executing;
-    assign is_slide_up_o = is_slide_up & instr_executing;
+    assign is_slide_up_o = is_slide_up_o & instr_executing;
     assign unit_stride_o = unit_stride & instr_executing;
     assign vl_keep_o = vl_keep & instr_executing;
     assign vmem_ops_eew_o = vmem_ops_eew & {3{instr_executing}};
