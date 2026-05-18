@@ -269,7 +269,7 @@ module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
         end
       endcase
     end
-    assign mac_res_d = {2'b00, (vec_instr_i && vsew_i!=VSEW_32) ? mult_res_vec : mac_res_d_sca[31:0]};
+    assign mac_res_d = {2'b00, (vec_instr_i && vsew_i!=VSEW_32) ? mult_res_vec : mac_res_d_sca};
 
     // The first two multipliers are only used in state 1 (MULL). We can assign them statically.
 
