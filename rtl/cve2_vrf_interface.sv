@@ -77,10 +77,36 @@ module cve2_vrf_interface #(
 
   import cve2_pkg::*;
 
+    // Vector register file states
+  typedef enum logic [4:0]{
+    VRF_IDLE,
+    VRF_START,
+    VRF_INT_READ1,
+    VRF_INT_READ2,
+    VRF_INT_READ3,
+    VRF_INT_WRITE,
+    VRF_MC_READ1,
+    VRF_MC_READ2,
+    VRF_MC_WRITE,
+    VRF_MC_READ,
+    VRF_MC_WRITE_SINGLE,
+    VRF_MC_READ_FIRST,
+    ERR_STATE,
+    VRF_LOAD_SLIDE,
+    VRF_READ,
+    VRF_WRITE,
+    VRF_LOAD,
+    VRF_LOAD_WAITGNT,
+    VRF_LOAD_WRITE,
+    VRF_STORE_READ,
+    VRF_STORE_WAITLSU,
+    VRF_STORE_WAITGNT
+  } vrf_state_t;
+
   parameter NUM_BYTE_OPS = (VLEN >> ($clog2(PIPE_WIDTH))) << 2; // (VLEN/PIPE_WIDTH) / 8 
 
   // VRF FSM signals
-  cve2_pkg::vrf_state_t vrf_state, vrf_next_state;
+  vrf_state_t vrf_state, vrf_next_state;
   logic [PIPE_WIDTH-3:0] num_iterations_q, num_iterations_d;
   logic [PIPE_WIDTH-1:0] num_bytes_elements;
   logic [1:0] offset_q, offset_d;

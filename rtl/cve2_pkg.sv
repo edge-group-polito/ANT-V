@@ -16,31 +16,6 @@ package cve2_pkg;
   localparam logic [31:0] VLENb               = 32'd4096; // Vector register file length in bits
   localparam logic [31:0] VRF_START_ADDR_FULL = 32'h00020000;
   
-  // Vector register file states
-  typedef enum logic [4:0]{
-    VRF_IDLE,
-    VRF_START,
-    VRF_INT_READ1,
-    VRF_INT_READ2,
-    VRF_INT_READ3,
-    VRF_INT_WRITE,
-    VRF_MC_READ1,
-    VRF_MC_READ2,
-    VRF_MC_WRITE,
-    VRF_MC_READ,
-    VRF_MC_WRITE_SINGLE,
-    VRF_MC_READ_FIRST,
-    ERR_STATE,
-    VRF_LOAD_SLIDE,
-    VRF_READ,
-    VRF_WRITE,
-    VRF_LOAD,
-    VRF_LOAD_WAITGNT,
-    VRF_LOAD_WRITE,
-    VRF_STORE_READ,
-    VRF_STORE_WAITLSU,
-    VRF_STORE_WAITGNT
-  } vrf_state_t;
 
   // Vector CSR data types - vsew
   typedef enum logic[2:0] {

@@ -15,7 +15,9 @@ filesets:
       - rtl/cve2_multdiv_fast_fracturable.sv
       - rtl/cve2_cs_registers_vec.sv
       - rtl/cve2_vrf_interface.sv
+      - rtl/cve2_vrf_interface_double.sv
       - rtl/cve2_agu.sv
+      - rtl/cve2_agu_double.sv
       - rtl/cve2_lsu_interface.sv
       - rtl/cve2_dmem_switch.sv
     file_type: systemVerilogSource

@@ -26,6 +26,7 @@ module cve2_core import cve2_pkg::*; #(
   parameter int unsigned VLEN              = 128,
   parameter int unsigned VRF_START_ADDR    = 32'h00010000,
   parameter bit          DbgTriggerEn      = 1'b0,
+  parameter bit          DoubleIf          = 1'b0,
   parameter int unsigned DbgHwBreakNum     = 1,
   parameter bit          XInterface        = 1'b0
 ) (
@@ -45,7 +46,12 @@ module cve2_core import cve2_pkg::*; #(
   output logic [31:0]                  instr_addr_o,
   input  logic [31:0]                  instr_rdata_i,
   input  logic                         instr_err_i,
-
+  // Specific to the ANT-V core, if RV32VX is implemented can be used as part of the instruction interface (TODO: modify the interface)
+  `ifdef DOUBLE_W_IF
+  output logic                         vrf_we_o,
+  output logic [31:0]                  vrf_wdata_o,
+  output logic [3:0]                   vrf_be_o,
+  `endif
   // Data memory interface
   output logic                         data_req_o,
   input  logic                         data_gnt_i,
@@ -230,10 +236,10 @@ module cve2_core import cve2_pkg::*; #(
   vlmul_e vrf_vlmul;
   // vrf if <--> agu signals
   logic agu_load;
-  logic agu_get_rs1;
-  logic agu_get_rs2;
-  logic agu_get_rd;
-  logic agu_incr;
+  logic [1:0] agu_get_rs1;
+  logic [1:0] agu_get_rs2;
+  logic [1:0] agu_get_rd;
+  logic [2:0] agu_incr;
   logic [31:0] agu_slide_addr;
   logic [31:0] agu_vrf_mem_addr;
   // VRF if <--> LSU if
@@ -299,10 +305,26 @@ module cve2_core import cve2_pkg::*; #(
   logic illegal_vec_csr_insn;
   // EEW/EMUL
   logic [2:0] vmem_ops_eew;
-
-  // Scalar CSRs <--> AGU (vec signals)
-  logic [31:0] csr_vrf_addr_start; // Starting address for vector register file accesses (used by AGU for address generation)
   
+  // If <--> mem swithc Vec
+  logic if_instr_req;
+  logic [31:0] if_instr_addr;
+  logic if_instr_gnt;
+  logic if_instr_rvalid;
+  logic [31:0] if_instr_rdata;
+  logic if_instr_err;
+
+  // Muxing of the isntr interface
+  logic vrf_instr_data_req;
+  logic vrf_instr_data_gnt;
+  logic vrf_instr_data_rvalid;
+  logic vrf_instr_data_we;
+  logic vrf_instr_data_err;
+  logic [3:0] vrf_instr_data_be;
+  logic [31:0] vrf_instr_data_wdata;
+  logic [31:0] vrf_instr_data_rdata;
+  logic [31:0] vrf_instr_data_addr; // TODO: generate it
+
 
   // CSR control
   logic        csr_access;
@@ -409,12 +431,12 @@ module cve2_core import cve2_pkg::*; #(
     .req_i      (instr_req_gated),  // instruction request control
 
     // instruction cache interface
-    .instr_req_o    (instr_req_o),
-    .instr_addr_o   (instr_addr_o),
-    .instr_gnt_i    (instr_gnt_i),
-    .instr_rvalid_i (instr_rvalid_i),
-    .instr_rdata_i  (instr_rdata_i),
-    .instr_err_i    (instr_err_i),
+    .instr_req_o    (if_instr_req),
+    .instr_addr_o   (if_instr_addr),
+    .instr_gnt_i    (if_instr_gnt),
+    .instr_rvalid_i (if_instr_rvalid),
+    .instr_rdata_i  (if_instr_rdata),
+    .instr_err_i    (if_instr_err),
 
     // outputs to ID stage
     .instr_valid_id_o        (instr_valid_id),
@@ -847,6 +869,76 @@ module cve2_core import cve2_pkg::*; #(
       .vector_op_i(vrf_req),
       .vector_mem_op_i(vrf_lsu_req)
     );
+
+    if (DoubleIf) begin : gen_instr_arbiter
+      // Use also instruction interface to request data from VRF
+      cve2_dmem_switch #(
+      ) dmem_arbiter_inst_i (
+        .clk_i(clk_i),
+        .rst_ni(rst_ni),
+        // Data memory interface (not used)
+        .data_req_o(instr_req_o),
+        .data_gnt_i(instr_gnt_i),
+        .data_rvalid_i(instr_rvalid_i),
+        `ifdef DOUBLE_W_IF
+        .data_we_o(vrf_we_o), // Also have a write port to the imem (added signal)
+        .data_be_o(vrf_be_o),
+        .data_wdata_o(vrf_wdata_o),
+        `else
+        .data_we_o(), // Instruction interface is read only
+        .data_be_o(), // Instruction interface doesn't use byte enables
+        .data_wdata_o(), // Instruction interface doesn't write data
+        `endif
+        .data_addr_o(instr_addr_o),
+        .data_rdata_i(instr_rdata_i),
+        .data_err_i(instr_err_i),
+        // VRF signals
+        .vrf_data_req_i(vrf_instr_data_req),
+        .vrf_data_gnt_o(vrf_instr_data_gnt), // Not used, as instruction interface doesn't request data from VRF
+        .vrf_data_rvalid_o(vrf_instr_data_rvalid), // Not used, as instruction interface doesn't request data from VRF
+        .vrf_data_we_i(vrf_instr_data_we), // Not used, as instruction interface doesn't write to VRF
+        .vrf_data_be_i(vrf_instr_data_be), // Not used, as instruction interface doesn't write to VRF
+        .vrf_data_addr_i(vrf_instr_data_addr), // Not used, as instruction interface doesn't request data from VRF
+        .vrf_data_wdata_i(vrf_instr_data_wdata), // Not used, as instruction interface doesn't write to VRF
+        .vrf_data_rdata_o(vrf_instr_data_rdata), // Not used, as instruction interface doesn't request data from VRF
+        .vrf_data_err_o(vrf_instr_data_err), // Not used, as instruction interface doesn't request data from VRF
+        // Actually coming from if stage not lsu
+        .lsu_data_req_i(if_instr_req),
+        .lsu_data_gnt_o(if_instr_gnt),
+        .lsu_data_rvalid_o(if_instr_rvalid),
+        .lsu_data_we_i(1'b0), // Instruction interface is read only
+        .lsu_data_be_i(1'b0), // Instruction interface doesn't use byte enables
+        .lsu_data_addr_i(if_instr_addr),
+        .lsu_data_wdata_i('0),
+        .lsu_data_rdata_o(if_instr_rdata),
+        .lsu_data_err_o(if_instr_err),
+        .lsu_resp_valid_i(instr_valid_id), // TODO: is this ok?
+        .lsu_busy_i(if_busy),
+        // Control signals
+        .vector_op_i(vrf_req),
+        .vector_mem_op_i(1'b0) // TODO: check
+      );
+      assign vrf_instr_data_err = 1'b0; // Not used
+    end else begin : gen_no_instr_arbiter
+      // Connect instruction interface directly to IF stage
+      assign instr_req_o = if_instr_req;
+      assign instr_addr_o = if_instr_addr;
+      assign if_instr_gnt = instr_gnt_i;
+      assign if_instr_rvalid = instr_rvalid_i;
+      assign if_instr_rdata = instr_rdata_i;
+      assign if_instr_err = instr_err_i;
+      assign vrf_instr_data_gnt = 1'b0; // Not used, as instruction interface doesn't request data from VRF
+      assign vrf_instr_data_rvalid = 1'b0; // Not used, as instruction interface doesn't request data from VRF
+      assign vrf_instr_data_rdata = 32'b0; // Not used, as instruction interface doesn't request data from VRF
+      assign vrf_instr_data_err = 1'b0; // Not used
+      `ifdef DOUBLE_W_IF
+      assign vrf_we_o = 1'b0; // Instruction interface is read only
+      assign vrf_be_o = 1'b0; // Instruction interface doesn't use byte enables
+      assign vrf_wdata_o = 32'b0; // Instruction interface doesn't write data
+      `endif
+      
+    end
+
   end else begin : gen_no_dmem_arbiter
     // Connect directly to LSU
     assign data_req_out = lsu_data_req;
@@ -864,6 +956,23 @@ module cve2_core import cve2_pkg::*; #(
     assign lsu_data_rvalid = data_rvalid_i;
     assign lsu_data_rdata = data_rdata_i;
     assign lsu_data_err = data_err_i;
+
+    // Connect instruction interface directly to IF stage
+    assign instr_req_o = if_instr_req;
+    assign instr_addr_o = if_instr_addr;
+    assign if_instr_gnt = instr_gnt_i;
+    assign if_instr_rvalid = instr_rvalid_i;
+    assign if_instr_rdata = instr_rdata_i;
+    assign if_instr_err = instr_err_i;
+    assign vrf_instr_data_gnt = 1'b0; // Not used, as instruction interface doesn't request data from VRF
+    assign vrf_instr_data_rvalid = 1'b0; // Not used, as instruction interface doesn't request data from VRF
+    assign vrf_instr_data_rdata = 32'b0; // Not used, as instruction interface doesn't request data from VRF
+    assign vrf_instr_data_err = 1'b0; // Not used
+    `ifdef DOUBLE_W_IF
+    assign vrf_we_o = 1'b0; // Instruction interface is read only
+    assign vrf_be_o = 1'b0; // Instruction interface doesn't use byte enables
+    assign vrf_wdata_o = 32'b0; // Instruction interface doesn't write data
+    `endif
   end
 
   cve2_wb #(
@@ -978,65 +1087,146 @@ module cve2_core import cve2_pkg::*; #(
   // VRF (Vector Register File) //
   ////////////////////////////////
   if (RV32VX) begin : vrf_if_block
-    // VRF interface, containing the logic for the vector register file
-    cve2_vrf_interface #(
-      .VLEN(VLEN),
-      .PIPE_WIDTH(32)
-    ) cve2_vrf_interface_i (
-      .clk_i(clk_i),
-      .rst_ni(rst_ni),
+    if (DoubleIf) begin : gen_vrf_double_if
+       // VRF interface, containing the logic for the vector register file
+      cve2_vrf_interface_double #(
+        //.VLEN(VLEN),
+        .PIPE_WIDTH(32)
+      ) cve2_vrf_interface_i (
+        .clk_i(clk_i),
+        .rst_ni(rst_ni),
+  
+        .req_i(vrf_req),
+  
+        .rdata_a_o(vrf_rdata_a),
+        .rdata_b_o(vrf_rdata_b),
+        .rdata_c_o(vrf_rdata_c),
+  
+        .wdata_i(vrf_wdata_wb),
+  
+        // Data memory interface
+        .data_req_o(vrf_data_req),
+        .data_gnt_i(vrf_data_gnt),
+        .data_rvalid_i(vrf_data_rvalid),
+        .data_err_i(vrf_data_err),
+        .data_pmp_err_i(pmp_req_err[PMP_D]),        // do I need this?
+        .data_we_o(vrf_data_we),
+        .data_be_o(vrf_data_be),
+        .data_wdata_o(vrf_data_wdata),
+        .data_rdata_i(vrf_data_rdata),
 
-      .req_i(vrf_req),
-
-      .rdata_a_o(vrf_rdata_a),
-      .rdata_b_o(vrf_rdata_b),
-      .rdata_c_o(vrf_rdata_c),
-
-      .wdata_i(vrf_wdata_wb),
-
-      // Data memory interface
-      .data_req_o(vrf_data_req),
-      .data_gnt_i(vrf_data_gnt),
-      .data_rvalid_i(vrf_data_rvalid),
-      .data_err_i(vrf_data_err),
-      .data_pmp_err_i(pmp_req_err[PMP_D]),        // do I need this?
-      .data_we_o(vrf_data_we),
-      .data_be_o(vrf_data_be),
-      .data_wdata_o(vrf_data_wdata),
-      .data_rdata_i(vrf_data_rdata),
-      // LSU control signals
-      .data_load_addr_o(lsu_if_load_addr),
-      .lsu_gnt_i(vrf_lsu_gnt),
-      .lsu_offset_i(lsu_if_addr[1:0]),
-
-      // AGU signals
-      .agu_load_o(agu_load),
-      .agu_get_rs1_o(agu_get_rs1),
-      .agu_get_rs2_o(agu_get_rs2),
-      .agu_get_rd_o(agu_get_rd),
-      .agu_incr_o(agu_incr),
-
-      // control signals
-      .sel_operation_i(vrf_sel_operation),
-      .memory_op_i(vrf_memory_op),
-      .unit_stride_i(unit_stride),
-      .mult_ops_i(vrf_mult_ops),
-      .multicycle_op_i(vrf_multicycle_op),
-      .ex_stall_o(vrf_if_ex_stall),
-      .vector_done_o(vector_done),
-      // Slide
-      .slide_op_i(vrf_slide_op),
-      .slide_offset_i(alu_operand_a_ex),
-      .is_slide_up_i(is_slide_up),
-      // LSU
-      .lsu_req_o(vrf_lsu_req),
-      .lsu_done_i(lsu_resp_valid),
-
-      // CSR
-      .lmul_i(vrf_vlmul),
-      .sew_i(vrf_vsew),
-      .vl_i(vl_q)
-    );
+        // Instruction interface
+        .instr_data_req_o(vrf_instr_data_req),
+        .instr_data_gnt_i(vrf_instr_data_gnt),
+        .instr_data_rvalid_i(vrf_instr_data_rvalid),
+        .instr_data_we_o(vrf_instr_data_we),
+        .instr_data_be_o(vrf_instr_data_be),
+        .instr_data_wdata_o(vrf_instr_data_wdata),
+        .instr_data_rdata_i(vrf_instr_data_rdata),
+        // LSU control signals
+        .data_load_addr_o(lsu_if_load_addr),
+        .lsu_gnt_i(vrf_lsu_gnt),
+        .lsu_offset_i(lsu_if_addr[1:0]),
+  
+        // AGU signals
+        .agu_load_o(agu_load),
+        .agu_get_rs1_o(agu_get_rs1),
+        .agu_get_rs2_o(agu_get_rs2),
+        .agu_get_rd_o(agu_get_rd),
+        .agu_incr_o(agu_incr),
+  
+        // control signals
+        .sel_operation_i(vrf_sel_operation),
+        .memory_op_i(vrf_memory_op),
+        .unit_stride_i(unit_stride),
+        .mult_ops_i(vrf_mult_ops),
+        .multicycle_op_i(vrf_multicycle_op),
+        .ex_stall_o(vrf_if_ex_stall),
+        .vector_done_o(vector_done),
+        // Slide
+        .slide_op_i(vrf_slide_op),
+        .slide_offset_i(alu_operand_a_ex),
+        .is_slide_up_i(is_slide_up),
+        // LSU
+        .lsu_req_o(vrf_lsu_req),
+        .lsu_done_i(lsu_resp_valid),
+  
+        // CSR
+        .lmul_i(vrf_vlmul),
+        .sew_i(vrf_vsew),
+        .vl_i(vl_q)
+      );
+    end else begin : gen_vrf_single_if
+      // VRF interface, containing the logic for the vector register file
+      cve2_vrf_interface #(
+        .VLEN(VLEN),
+        .PIPE_WIDTH(32)
+      ) cve2_vrf_interface_i (
+        .clk_i(clk_i),
+        .rst_ni(rst_ni),
+  
+        .req_i(vrf_req),
+  
+        .rdata_a_o(vrf_rdata_a),
+        .rdata_b_o(vrf_rdata_b),
+        .rdata_c_o(vrf_rdata_c),
+  
+        .wdata_i(vrf_wdata_wb),
+  
+        // Data memory interface
+        .data_req_o(vrf_data_req),
+        .data_gnt_i(vrf_data_gnt),
+        .data_rvalid_i(vrf_data_rvalid),
+        .data_err_i(vrf_data_err),
+        .data_pmp_err_i(pmp_req_err[PMP_D]),        // do I need this?
+        .data_we_o(vrf_data_we),
+        .data_be_o(vrf_data_be),
+        .data_wdata_o(vrf_data_wdata),
+        .data_rdata_i(vrf_data_rdata),
+        // LSU control signals
+        .data_load_addr_o(lsu_if_load_addr),
+        .lsu_gnt_i(vrf_lsu_gnt),
+        .lsu_offset_i(lsu_if_addr[1:0]),
+  
+        // AGU signals
+        .agu_load_o(agu_load),
+        .agu_get_rs1_o(agu_get_rs1[0]),
+        .agu_get_rs2_o(agu_get_rs2[0]),
+        .agu_get_rd_o(agu_get_rd[0]),
+        .agu_incr_o(agu_incr[0]),
+  
+        // control signals
+        .sel_operation_i(vrf_sel_operation),
+        .memory_op_i(vrf_memory_op),
+        .unit_stride_i(unit_stride),
+        .mult_ops_i(vrf_mult_ops),
+        .multicycle_op_i(vrf_multicycle_op),
+        .ex_stall_o(vrf_if_ex_stall),
+        .vector_done_o(vector_done),
+        // Slide
+        .slide_op_i(vrf_slide_op),
+        .slide_offset_i(alu_operand_a_ex),
+        .is_slide_up_i(is_slide_up),
+        // LSU
+        .lsu_req_o(vrf_lsu_req),
+        .lsu_done_i(lsu_resp_valid),
+  
+        // CSR
+        .lmul_i(vrf_vlmul),
+        .sew_i(vrf_vsew),
+        .vl_i(vl_q)
+      );
+      // Signals used only in 2-interface mode
+      assign agu_get_rs1[1] = 1'b0;
+      assign agu_get_rs2[1] = 1'b0;
+      assign agu_get_rd[1]  = 1'b0;
+      assign agu_incr[1]    = 1'b0;
+      assign agu_incr[2]    = 1'b0;
+      assign vrf_instr_data_req = 1'b0; // Not used in single interface mode, as instruction interface doesn't request data from VRF
+      assign vrf_instr_data_we =1'b0;
+      assign vrf_instr_data_be = 4'b0;
+      assign vrf_instr_data_wdata = 32'b0; 
+    end
   end else begin : no_vrf_block
   // Hardwire all output of VRF if to 0
     assign vrf_rdata_a = 32'b0;
@@ -1048,13 +1238,18 @@ module cve2_core import cve2_pkg::*; #(
     assign vrf_data_wdata = 32'b0;
     assign lsu_if_load_addr = 1'b0;
     assign agu_load = 1'b0;
-    assign agu_get_rs1 = 1'b0;
-    assign agu_get_rs2 = 1'b0;
-    assign agu_get_rd  = 1'b0;
-    assign agu_incr    = 1'b0;
+    assign agu_get_rs1 = '0;
+    assign agu_get_rs2 = '0;
+    assign agu_get_rd  = '0;
+    assign agu_incr    = '0;
     assign vector_done = 1'b0; //TODO: check
     assign vrf_lsu_req = 1'b0;
     assign vrf_if_ex_stall = 1'b0;
+    // Double IF signals
+    assign vrf_instr_data_req = 1'b0; // Not used in single interface mode, as instruction interface doesn't request data from VRF
+    assign vrf_instr_data_we =1'b0;
+    assign vrf_instr_data_be = 4'b0;
+    assign vrf_instr_data_wdata = 32'b0; 
   end
   if (RV32VX) begin : agu_if_block
     // AGU, translates the VR numbero to a memory address
@@ -1062,36 +1257,69 @@ module cve2_core import cve2_pkg::*; #(
     assign vrf_raddr_a  = (vx_instr) ? rf_rdata_b[20:16] : rf_raddr_a;
     assign vrf_raddr_b  = (vx_instr) ? rf_rdata_b[12:8]  : rf_raddr_b;
     assign vrf_waddr_wb = (vx_instr) ? rf_rdata_b[4:0]   : rf_waddr_wb;
-    cve2_agu #(
-      .AddrWidth(32),
-      .VLEN(VLEN)
-    ) agu_i (
-      .clk_i(clk_i),
-      .rst_ni(rst_ni),
-      // vrf start address from CSR
-      .vrf_addr_start_i(csr_vrf_addr_start),
-      // register addresses
-      .rs1_i(vrf_raddr_a),
-      .rs2_i(vrf_raddr_b),
-      .rd_i (vrf_waddr_wb),
-      // control signals from VRF
-      .load_i(agu_load),
-      .get_rs1_i(agu_get_rs1),  
-      .get_rs2_i(agu_get_rs2),
-      .get_rd_i(agu_get_rd),  
-      .incr_i(agu_incr),
-      // slide instructions
-      .is_slide_i(vrf_slide_op),
-      .is_slide_up_i(is_slide_up),
-      // memory address output
-      .addr_i(alu_adder_result_ex),
-      .slide_start_addr_o(agu_slide_addr),
-      .mem_if_addr_o(agu_vrf_mem_addr)
-    );
+    if (DoubleIf) begin : gen_agu_double_if
+      cve2_agu_double #(
+        .AddrWidth(32),
+        .VRF_START_ADDR(VRF_START_ADDR),
+        .VLEN(VLEN)
+      ) agu_i (
+        .clk_i(clk_i),
+        .rst_ni(rst_ni),
+        // register addresses
+        .rs1_i(vrf_raddr_a),
+        .rs2_i(vrf_raddr_b),
+        .rd_i (vrf_waddr_wb),
+        // control signals from VRF
+        .load_i(agu_load),
+        .get_rs1_i(agu_get_rs1),  
+        .get_rs2_i(agu_get_rs2),
+        .get_rd_i(agu_get_rd),  
+        .incr_i(agu_incr),
+        // slide instructions
+        .is_slide_i(vrf_slide_op),
+        .is_slide_up_i(is_slide_up),
+        // memory address output
+        .addr_i(alu_adder_result_ex),
+        .slide_start_addr_o(agu_slide_addr),
+        .mem_if_addr_o(agu_vrf_mem_addr),
+        .instr_mem_if_addr_o(vrf_instr_data_addr)
+      );
+
+    end else begin :  gen_agu_single_if
+      cve2_agu #(
+        .AddrWidth(32),
+        .VRF_START_ADDR   (VRF_START_ADDR),
+        .VLEN(VLEN)
+      ) agu_i (
+        .clk_i(clk_i),
+        .rst_ni(rst_ni),
+        // register addresses
+        .rs1_i(vrf_raddr_a),
+        .rs2_i(vrf_raddr_b),
+        .rd_i (vrf_waddr_wb),
+        // control signals from VRF
+        .load_i(agu_load),
+        .get_rs1_i(agu_get_rs1[0]),  
+        .get_rs2_i(agu_get_rs2[0]),
+        .get_rd_i(agu_get_rd[0]),  
+        .incr_i(agu_incr[0]),
+        // slide instructions
+        .is_slide_i(vrf_slide_op),
+        .is_slide_up_i(is_slide_up),
+        // memory address output
+        .addr_i(alu_adder_result_ex),
+        .slide_start_addr_o(agu_slide_addr),
+        .mem_if_addr_o(agu_vrf_mem_addr)
+      );
+      // Double IF signals
+      assign vrf_instr_data_addr = 32'b0;
+    end
   end else begin : no_agu_block
   // Address generated by agu is not used, hardwire to 0
     assign agu_vrf_mem_addr = 32'b0;
     assign agu_slide_addr         = 32'b0;
+    // Double IF signals
+    assign vrf_instr_data_addr = 32'b0;
   end
 
 

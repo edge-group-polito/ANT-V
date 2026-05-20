@@ -74,6 +74,13 @@ parameters:
     default: cve2_pkg::RV32MSingleCycle
     paramtype: vlogdefine
     description: "RV32M implementation parameter enum. See the cve2_pkg::rv32m_e enum in cve2_pkg.sv for permitted values."
+  
+  DOUBLE_W_IF:
+    datatype: bool
+    default: false
+    paramtype: vlogdefine
+    description: "Whether to use a double-width instruction interface to the VRF."
+
 
 targets:
   default: &default_target
@@ -84,6 +91,7 @@ targets:
     toplevel: cve2_top
     parameters:
       - tool_vivado ? (FPGA_XILINX=true)
+      - DOUBLE_W_IF=true
 
   asic_synthesis:
     filesets:

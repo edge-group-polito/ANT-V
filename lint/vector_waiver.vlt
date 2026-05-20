@@ -1,16 +1,16 @@
 `verilator_config
 
 // VRF interface
-lint_off -rule UNUSED -file "*/rtl/cve2_vrf_interface.sv" -match "Signal is not used: 'data_err_i'"
-lint_off -rule UNUSED -file "*/rtl/cve2_vrf_interface.sv" -match "Signal is not used: 'data_pmp_err_i'"
-lint_off -rule UNUSED -file "*/rtl/cve2_vrf_interface.sv" -match "Signal is not used: 'unit_stride_i'"
-lint_off -rule UNUSED -file "*/rtl/cve2_vrf_interface.sv" -match "Signal is not used: 'lmul_i'"
-lint_off -rule UNUSED -file "*/rtl/cve2_vrf_interface.sv" -match "Parameter is not used: 'NUM_BYTE_OPS'"
+lint_off -rule UNUSED -file "*/rtl/cve2_vrf_interface*.sv" -match "Signal is not used: 'data_err_i'"
+lint_off -rule UNUSED -file "*/rtl/cve2_vrf_interface*.sv" -match "Signal is not used: 'data_pmp_err_i'"
+lint_off -rule UNUSED -file "*/rtl/cve2_vrf_interface*.sv" -match "Signal is not used: 'unit_stride_i'"
+lint_off -rule UNUSED -file "*/rtl/cve2_vrf_interface*.sv" -match "Signal is not used: 'lmul_i'"
+lint_off -rule UNUSED -file "*/rtl/cve2_vrf_interface*.sv" -match "Parameter is not used: 'NUM_BYTE_OPS'"
 
 // AGU
 lint_off -rule UNUSED -file "*/rtl/cve2_cs_registers_vec.sv" -match "Bits of signal are not used: 'alu_operand_b_ex_i'[31:8]"
 lint_off -rule WIDTH -file "*/rtl/cve2_cs_registers_vec.sv" -match "Operator * expects 32 bits on the LHS, but LHS's SIGNED generates 3 bits."
-lint_off -rule UNUSED -file "*/rtl/cve2_agu.sv" -match "Bits of signal are not used: 'addr_i'[*]"
+lint_off -rule UNUSED -file "*/rtl/cve2_agu*.sv" -match "Bits of signal are not used: 'addr_i'[*]"
 
 lint_off -rule UNUSED -file "*/rtl/cve2_multdiv_fast_fracturable.sv" -match "Bits of signal are not used: 'mac_res_d_sca'[33:32]"
 lint_off -rule UNUSED -file "*/rtl/cve2_alu.sv" -match "Bits of signal are not used: 'vsew_i'[2]"
