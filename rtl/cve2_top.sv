@@ -43,7 +43,7 @@ module cve2_top import cve2_pkg::*; #(
   input  logic [31:0]                  instr_rdata_i,
   input  logic                         instr_err_i,
   `ifdef DOUBLE_W_IF
-  output logic                         instr_wdata_o,
+  output logic [31:0]                  instr_wdata_o,
   output logic [3:0]                   instr_be_o,
   output logic                         instr_we_o,
   `endif

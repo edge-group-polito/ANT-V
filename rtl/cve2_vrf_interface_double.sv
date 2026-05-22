@@ -19,7 +19,7 @@ module cve2_vrf_interface_double #(
 ) (
     // Clock and Reset
     input   logic                       clk_i,
-    input   logic                       rst_ni,
+    input   logic                       rst_ni, 
 
     // Read ports
     input   logic                       req_i,                              // request signal for VRF
@@ -47,6 +47,8 @@ module cve2_vrf_interface_double #(
     output logic [3:0]  instr_data_be_o,
     output logic [31:0] instr_data_wdata_o,
     input  logic [31:0] instr_data_rdata_i,
+
+    output logic        use_double_if_o,
 
     // LSU control signals
     output logic         data_load_addr_o,  // loads the address for the memory operation in a counter
@@ -133,8 +135,8 @@ typedef enum logic [4:0] {
   VRF_SYNC_SLV
 } slv_state_t;
 
-mst_state_t curr_mst_state, next_mst_state, saved_mst_state;
-slv_state_t curr_slv_state, next_slv_state, saved_slv_state;
+mst_state_t curr_mst_state, next_mst_state, saved_mst_state_d, saved_mst_state_q;
+slv_state_t curr_slv_state, next_slv_state, saved_slv_state_d, saved_slv_state_q;
 
 
 // Internal signals 
@@ -158,7 +160,10 @@ logic vector_done_mst;
 // Sync MST --> SLV FSM
 logic [2:0] mst_sync_slv; // 1 for each operand to sync (muxeed between comb and reg value)
 logic [2:0] mst_sync_slv_d, mst_sync_slv_q; // combinational version of the signal to avoid timing issues
-logic mst_start_slv; // start the slave fsm (when the operation is what required)
+logic mst_start_slv, mst_start_slv_q; // start the slave fsm (when the operation is what required)
+
+// Even iterations
+logic even_iteration;
 
 // Slave FSM
 logic [2:0] agu_incr_slv;
@@ -188,6 +193,8 @@ logic [PIPE_WIDTH-3:0] num_iterations_q, num_iterations_d;
 logic [PIPE_WIDTH-1:0] num_bytes_elements;
 logic first_iteration_d, first_iteration_q;
 logic last_iteration_d, last_iteration_q;
+logic last_iteration_odd_d, last_iteration_odd_q;
+logic last_iteration_mst; // in odd iteration with double if need to arrive to 0 as the last iteration to do the last iteration correctly with if 0
 
 
 // Offset handling
@@ -317,7 +324,7 @@ always_comb begin
         next_mst_state = VRF_INT_WRITE_MST;
       end else begin
         if (data_gnt_i) begin
-          if (slv_sync_mst[1]) begin
+          if ((slv_sync_mst[1] && instr_data_gnt_i) || last_iteration_mst) begin
             next_mst_state = VRF_INT_WRITE_MST;
           end else begin
             next_mst_state = VRF_SYNC_MST; // wait until slave is synced
@@ -338,12 +345,12 @@ always_comb begin
         end
 
       end else if (sel_operation_i[3]) begin
-        if (last_iteration_q) begin
+        if (last_iteration_mst) begin
           next_mst_state = VRF_INT_READ1_MST;
         end else begin
           // Sync with slave on all iterations except the first
           if (data_gnt_i) begin
-            if (first_iteration_q || slv_sync_mst[2]) begin
+            if (first_iteration_q || (slv_sync_mst[2] && instr_data_gnt_i) || (last_iteration_odd_q)) begin
               next_mst_state = VRF_INT_READ1_MST;
             end else begin
               next_mst_state = VRF_SYNC_MST;
@@ -360,15 +367,21 @@ always_comb begin
     end
 
     VRF_INT_WRITE_MST: begin
-      if (last_iteration_q) begin
+      if (last_iteration_q && even_iteration) begin
+        next_mst_state = VRF_SYNC_MST; // wait at least 1cc to resync with slave
+      end else if (last_iteration_odd_q && !even_iteration) begin
         next_mst_state = VRF_IDLE_MST;
       end else begin
         if (sel_operation_i[1]) begin
           if (data_gnt_i) begin
-            if (slv_sync_mst[0] || slv_sync_mst[1]) begin
-              next_mst_state = VRF_INT_READ2_MST;
+            if (!first_iteration_q) begin
+              if ((slv_sync_mst[0] || slv_sync_mst[1]) && instr_data_gnt_i) begin
+                next_mst_state = VRF_INT_READ2_MST;
+              end else begin
+                next_mst_state = VRF_SYNC_MST; // wait until slave is synced
+              end
             end else begin
-              next_mst_state = VRF_SYNC_MST; // wait until slave is synced
+              next_mst_state = VRF_INT_READ2_MST;
             end
           end else begin
             next_mst_state = VRF_INT_WRITE_MST; // wait until gnt
@@ -407,7 +420,7 @@ always_comb begin
     end
 
     VRF_WRITE_MST: begin
-      if (last_iteration_q) begin
+      if (last_iteration_mst) begin
         next_mst_state = VRF_IDLE_MST;
       end else begin
         if (sel_operation_i[0] || sel_operation_i[1]) begin
@@ -431,12 +444,12 @@ always_comb begin
       end
     end
 
-    // Syn state in case the slave gets out of sync due to not received gnt
+    // Syn state in case the slave gets out of sync due to not received gntAC
     VRF_SYNC_MST: begin
       // TODO: check, for now we do not check which one is active
       if(|slv_sync_mst) begin
         // Get back to the normal next state
-        next_mst_state = saved_mst_state;
+        next_mst_state = saved_mst_state_q;
       end else begin
         next_mst_state = VRF_SYNC_MST;
       end
@@ -450,7 +463,11 @@ always_comb begin
       if(lsu_done_i || last_iteration_q) begin
         if (!first_iteration_q) begin
           if (data_gnt_i) begin
-          next_mst_state = VRF_LOAD_WRITE;
+            if (!last_iteration_q) begin
+              next_mst_state = VRF_LOAD_WRITE;
+            end else begin
+              next_mst_state = VRF_IDLE_MST;
+            end
           end else begin
             next_mst_state = VRF_LOAD_WAITGNT;
           end
@@ -471,28 +488,31 @@ always_comb begin
     end
 
     VRF_LOAD_WRITE: begin
-      if (last_iteration_q) begin
-        next_mst_state = VRF_IDLE_MST;
-      end else begin
+      //if (last_iteration_q) begin
+      //  next_mst_state = VRF_IDLE_MST;
+      //end else begin
         next_mst_state = VRF_LOAD;
-      end
+      //end
     end
 
     // Store
     // -----
     VRF_STORE_READ: begin
       // Proceed as soon as the value is sampled
-      if (data_rvalid_i || last_iteration_q)  begin
+      if (data_rvalid_i)  begin
         next_mst_state = VRF_STORE_WAITLSU;
+      end else if (last_iteration_q) begin
+        next_mst_state = VRF_IDLE_MST;
       end else begin
         next_mst_state = VRF_STORE_READ;
       end
     end
     VRF_STORE_WAITLSU: begin
       if (lsu_done_i || first_iteration_q) begin
-        if (last_iteration_q) begin
-          next_mst_state = VRF_IDLE_MST;  
-        end else if (num_iterations_q == (no_offset ? 1 : 0)) begin
+        //if (last_iteration_q) begin
+        //  next_mst_state = VRF_IDLE_MST;  
+        //end else 
+        if (num_iterations_q == (no_offset ? 1 : 0)) begin
           next_mst_state = VRF_STORE_READ;
         end else begin
           if (data_gnt_i) begin
@@ -571,7 +591,8 @@ always_comb begin
   mst_start_slv = 1'b0;
   sample_sync_mst = 1'b0;
   sel_sync_mst = 1'b0;
-  saved_mst_state = curr_mst_state; // default saved state is the current one, in case we need to go in sync we save the next_state
+  saved_mst_state_d = curr_mst_state; // default saved state is the current one, in case we need to go in sync we save the next_state
+  even_iteration = ~vl_i[0];
 
   case(curr_mst_state)
   VRF_IDLE_MST: begin
@@ -598,7 +619,6 @@ always_comb begin
     next_mc_rd_mux_sel = 1'b0;
     next_mc_rd_demux_sel = 1'b0;
     first_mc_write_d = 1'b0;
-
     if (!memory_op_i) begin   // ARITH Op
       if (mult_ops_i) begin
         data_req_o = 1'b1;
@@ -631,8 +651,10 @@ always_comb begin
             end
             if (sel_operation_i[0]) begin
               agu_incr_mst[0] = 1'b1;
+              mst_sync_slv_d[0] = 1'b1;
             end else begin
               agu_incr_mst[1] = 1'b1;
+              mst_sync_slv_d[1] = 1'b1;
             end
             if (multicycle_op_i) begin // TODO: left unchanged MC
               first_mc_write_d = 1'b1;
@@ -644,6 +666,7 @@ always_comb begin
           agu_get_rd_mst = 1'b1;
           if (data_gnt_i) begin
             agu_incr_mst[2] = 1'b1;
+            mst_sync_slv_d[2] = 1'b1;
           end
         end
       end
@@ -665,7 +688,7 @@ always_comb begin
   // Arithmetic
   //-----------
   VRF_INT_READ1_MST: begin
-    if (data_rvalid_i && !last_iteration_q) begin
+    if (data_rvalid_i && !last_iteration_mst) begin
       if (sel_operation_i[0]) rs1_en_mst = 1;
       else rs2_en_mst = 1;
     end
@@ -676,7 +699,7 @@ always_comb begin
       write_delayed = ~data_gnt_i; // TODO: check
       if (data_gnt_i) begin
         if (!slv_sync_mst[1]) begin
-          saved_mst_state = VRF_INT_WRITE_MST;
+          saved_mst_state_d = VRF_INT_WRITE_MST;
           sample_sync_mst = 1'b1; // sample the next state of the master  
         end
         agu_incr_mst[2] = 1'b1;
@@ -698,11 +721,16 @@ always_comb begin
       // TODO: not handled in 2 ports mode for now vmacc.vv (3 ops)
     // if next operation is WRITE RD
     end else if (sel_operation_i[3]) begin
-      if (!last_iteration_q) begin
+      if (!last_iteration_mst) begin
         data_req_o = 1'b1;
         if (sel_operation_i[0]) agu_get_rs1_mst = 1'b1;
         else agu_get_rs2_mst = 1'b1;
         if (data_gnt_i) begin
+          // Remove flag for first iteration ahead enough that it has been correctly processed by
+          // slave FSM and now by VRF_INT_READ2_MST needing it
+          if (first_iteration_q) begin
+            first_iteration_d = 1'b0;
+          end
           if (sel_operation_i[0]) begin
             agu_incr_mst[0] = 1'b1;
             mst_sync_slv_d[0] = 1'b1;
@@ -711,24 +739,20 @@ always_comb begin
             mst_sync_slv_d[1] = 1'b1;
           end
           if (!(first_iteration_q || slv_sync_mst[2])) begin
-            saved_mst_state = VRF_INT_READ1_MST;
+            saved_mst_state_d = VRF_INT_READ1_MST;
             sample_sync_mst = 1'b1; // sample the next state of the master
           end
         end
       end
     end
-    // Remove flag for first iteration ahead enough that it has been correctly processed by
-    // slave FSM and now by VRF_INT_READ2_MST needing it
-    if (first_iteration_q) begin
-      first_iteration_d = 1'b0;
-    end
+
   end
   VRF_INT_READ3_MST: begin
     // TODO: check, left unchanged for now
     if (data_rvalid_i) rs3_en_mst = 1'b1;
     // NEXT STATE SELECTION
     if (sel_operation_i[3]) begin
-      if (!last_iteration_q) begin
+      if (!last_iteration_mst) begin
         data_req_o = 1'b1;
         agu_get_rs1_mst = 1'b1;
         if (data_gnt_i) begin
@@ -738,8 +762,14 @@ always_comb begin
     end
   end
   VRF_INT_WRITE_MST: begin
-    if (last_iteration_q) begin
+    if (last_iteration_mst && !even_iteration) begin
       vector_done_mst = 1'b1;
+    //end else if (last_iteration_odd_q && !even_iteration) begin
+    //  vector_done_mst = 1'b1;
+    end else if (last_iteration_mst && even_iteration) begin
+      vector_done_mst = 1'b0; // Do nothing, last iteration is for the slave
+      saved_mst_state_d = VRF_IDLE_MST;
+      sample_sync_mst = 1'b1;
     end else begin
       if (sel_operation_i[1]) begin
         data_req_o = 1'b1;
@@ -754,7 +784,7 @@ always_comb begin
             mst_sync_slv_d[1] = 1'b1;  // get rs2
           end // TODO: check if else should be handled
           if (!(slv_sync_mst[0] || slv_sync_mst[1])) begin
-            saved_mst_state = VRF_INT_READ2_MST;
+            saved_mst_state_d = VRF_INT_READ2_MST;
             sample_sync_mst = 1'b1;
           end
           dec_iterations_mst = 1'b1;
@@ -782,7 +812,7 @@ always_comb begin
   end
   VRF_READ_MST: begin
     // SAMPLE
-    if (data_rvalid_i && !last_iteration_q) begin
+    if (data_rvalid_i && !last_iteration_mst) begin
       rs2_en_mst = 1'b1;
       if (slide_op_i) slide_buffer_en = 1'b1;
     end
@@ -796,14 +826,14 @@ always_comb begin
         agu_incr_mst[2] = 1'b1;
         mst_sync_slv_d[2] = 1'b1; // write incs
         if (!(slv_sync_mst[0] || slv_sync_mst[1])) begin
-          saved_mst_state = VRF_WRITE_MST;
+          saved_mst_state_d = VRF_WRITE_MST;
           sample_sync_mst = 1'b1;
         end
       end
     end
   end
   VRF_WRITE_MST: begin
-    if (last_iteration_q) begin
+    if (last_iteration_mst) begin
       vector_done_mst = 1'b1;
     end else begin
       // if next operation is READ
@@ -818,6 +848,9 @@ always_comb begin
             agu_get_rs2_mst = 1'b1;
           end
           if (data_gnt_i) begin
+            if (first_iteration_q) begin
+              first_iteration_d = 1'b0;
+            end
             if (sel_operation_i[0]) begin
               agu_incr_mst[0] = 1'b1;
               mst_sync_slv_d[0] = 1'b1;
@@ -827,7 +860,7 @@ always_comb begin
             end
             dec_iterations_mst = 1'b1;
             if (!slv_sync_mst[2]) begin
-              saved_mst_state = VRF_READ_MST;
+              saved_mst_state_d = VRF_READ_MST;
               sample_sync_mst = 1'b1;
             end
           end
@@ -838,16 +871,17 @@ always_comb begin
         data_req_o = 1'b1;
         agu_get_rd_mst = 1'b1;
         if (data_gnt_i && slv_sync_mst[2]) begin
+          // TODO: check: moved here to ensure that slave FSM correctly sees the first_iteration_q flag still at 1 on its first iteration
+          if (first_iteration_q) begin
+            first_iteration_d = 1'b0;
+          end
           agu_incr_mst[2] = 1'b1;
           mst_sync_slv_d[2] = 1'b1; // write incs
           dec_iterations_mst = 1'b1;
         end
       end
     end
-    // TODO: check: moved here to ensure that slave FSM correctly sees the first_iteration_q flag still at 1 on its first iteration
-    if (first_iteration_q) begin
-      first_iteration_d = 1'b0;
-    end
+
   end
   VRF_SYNC_MST: begin
     sel_sync_mst = 1'b1; // default is to sample the next state of the master FSM, as we save it when we enter in sync
@@ -866,6 +900,9 @@ always_comb begin
         write_delayed = ~data_gnt_i; // TODO: check
         if (data_gnt_i) begin
           agu_incr_mst[2] = 1'b1;
+          if (last_iteration_q) begin
+            vector_done_mst = 1'b1;
+          end
         end
       end else begin
         first_iteration_d = 1'b0;
@@ -881,18 +918,20 @@ always_comb begin
     end
   end
   VRF_LOAD_WRITE: begin
-    if (last_iteration_q) begin
-      vector_done_mst = 1'b1;
-    end else begin
+    //if (last_iteration_q) begin
+    //  vector_done_mst = 1'b1;
+    //end else begin
       // Request to LSU only if not last iteration
       // Iterations are decremented by the main logic
       dec_iterations_mst = 1'b1;
       lsu_req_o = 1'b1;
-    end
+    //end
   end
   VRF_STORE_READ: begin
     if (data_rvalid_i) rs3_en_mst = 1'b1;
     if (data_rvalid_i || last_iteration_q) begin
+      vector_done_mst = last_iteration_q; // if it is the last iteration we are done, else we need to go through the LSU
+      //TODO: check
       if (!first_iteration_q) begin
         lsu_req_o = 1'b1;
         if (lsu_offset_q != 2'b00) begin
@@ -910,11 +949,12 @@ always_comb begin
       first_iteration_d = 1'b0;
       //read_delayed = 1'b0;
       // Exit condition
-      if (last_iteration_q) begin
-        vector_done_mst = 1'b1;
-        //num_iterations_d = '0;
-      // In the last cycle we don't read the operand
-      end else if (num_iterations_q == (no_offset ? 1 : 0)) begin
+      //if (last_iteration_q) begin
+      //  vector_done_mst = 1'b1;
+      //  //num_iterations_d = '0;
+      //// In the last cycle we don't read the operand
+      //end else
+      if (num_iterations_q == (no_offset ? 1 : 0)) begin
         //last_iteration_d = 1'b1;
         if (lsu_offset_q != 2'b00 && lsu_done_i) begin
           next_demux_sel = ~curr_demux_sel; // TODO: check
@@ -994,26 +1034,26 @@ always_comb begin
 
     VRF_INT_READ1_SLV: begin
       if (first_iteration_q) begin
-        if (sel_operation_i[0]) begin
-          if (mst_sync_slv[0]) begin  
+        //if (sel_operation_i[0]) begin
+          if (mst_sync_slv[1]) begin  
             next_slv_state = VRF_INT_WRITE_SLV;
           end else begin
             next_slv_state = VRF_SYNC_SLV;
           end
-        end else if (sel_operation_i[1]) begin
-          if (mst_sync_slv[1]) begin
-            next_slv_state = VRF_INT_WRITE_SLV;
-          end else begin
-            next_slv_state = VRF_SYNC_SLV;
-          end
-        end else begin
-          // Stay in this state until the mst has received its grant (cannot go ahead otherwise)
-          next_slv_state = VRF_INT_READ1_SLV; // wait until master gives the sync
-        end
+        //end else if (sel_operation_i[1]) begin
+        //  if (mst_sync_slv[1]) begin
+        //    next_slv_state = VRF_INT_WRITE_SLV;
+        //  end else begin
+        //    next_slv_state = VRF_SYNC_SLV;
+        //  end
+        //end else begin
+        //  // Stay in this state until the mst has received its grant (cannot go ahead otherwise)
+        //  next_slv_state = VRF_INT_READ1_SLV; // wait until master gives the sync
+        //end
       end else begin
         if (instr_data_gnt_i) begin
           // When gnt from VRF and mst has already finished its write
-          if (mst_sync_slv[0] || mst_sync_slv[1]) begin
+          if (mst_sync_slv[0] || mst_sync_slv[1] || last_iteration_q) begin
             next_slv_state = VRF_INT_WRITE_SLV;
           end else begin
             next_slv_state = VRF_SYNC_SLV; // wait until master is synced
@@ -1120,7 +1160,7 @@ always_comb begin
     // Sync state in case the master gets out of sync due to not received gnt
     VRF_SYNC_SLV: begin
       if (|mst_sync_slv) begin
-        next_slv_state = saved_slv_state;
+        next_slv_state = saved_slv_state_q;
       end else begin
         next_slv_state = VRF_SYNC_SLV;
       end
@@ -1162,20 +1202,25 @@ always_comb begin
   // Sample signals for sync
   sel_sync_slv = 1'b0;
   sample_sync_slv = 1'b0;
-  saved_slv_state = curr_slv_state; // default saved state is the current one
+  saved_slv_state_d = curr_slv_state; // default saved state is the current one
+  use_double_if_o = 1'b1; // default is to use the single interface, some operations can use the double one to be faster
 
   case(curr_slv_state)
     VRF_IDLE_SLV: begin
       // By default enable the master to go ahead
       // This is useful in case of operations done in single-interface mode (slide, move) with common branches with the double if version
+      use_double_if_o = 1'b1;
       slv_sync_mst_d = 3'b111;
     end
     VRF_START_SLV: begin
+      //use_double_if_o = 1'b1;
       if (mult_ops_i) begin
+        sel_sync_slv = 1'b1; // default is to sample the next state of the master FSM
         instr_data_req_o = 1'b1;
         if (sel_operation_i[0]) agu_get_rs1_slv = 1'b1;
         else agu_get_rs2_slv = 1'b1;
-        if (data_gnt_i) begin
+        if (instr_data_gnt_i) begin
+          sample_sync_slv = 1'b1; // sample the next state of the master FSM
           if (sel_operation_i[0]) begin
             agu_incr_slv[0] = 1'b1;
             slv_sync_mst_d[0] = 1'b1;
@@ -1219,7 +1264,8 @@ always_comb begin
     // Arithmetic
     //-----------
     VRF_INT_READ1_SLV: begin
-      if (instr_data_rvalid_i && !last_iteration_q) begin
+      sel_sync_slv = 1'b1; // default is to sample the next state of the master FSM
+      if (instr_data_rvalid_i && !last_iteration_mst) begin
         if (sel_operation_i[0]) rs1_en_slv = 1;
         else rs2_en_slv = 1;
       end
@@ -1230,9 +1276,10 @@ always_comb begin
         agu_get_rd_slv = 1'b1;
         write_delayed_slv = ~(instr_data_gnt_i);// && mst_sync_slv[2]); // TODO: check
         if (instr_data_gnt_i) begin
+          sample_sync_slv = 1'b1;
           if (!(mst_sync_slv[0] || mst_sync_slv[1])) begin
-            saved_slv_state = VRF_INT_WRITE_SLV;
-            sample_sync_slv = 1'b1; // sample the next state of the master
+            saved_slv_state_d = VRF_INT_WRITE_SLV;
+            //sample_sync_slv = 1'b1; // sample the next state of the master
           end
           agu_incr_slv[2] = 1'b1;
           slv_sync_mst_d[2] = 1'b1; // write incs
@@ -1243,6 +1290,7 @@ always_comb begin
       //end
     end
     VRF_INT_READ2_SLV: begin
+      sel_sync_slv = 1'b1; // default is to sample the next state of the master FSM
       if (instr_data_rvalid_i) begin
         if (sel_operation_i[0]) rs2_en_slv = 1;
         else rs3_en_slv = 1;
@@ -1258,6 +1306,7 @@ always_comb begin
           if (sel_operation_i[0]) agu_get_rs1_slv = 1'b1;
           else agu_get_rs2_slv = 1'b1;
           if (instr_data_gnt_i) begin
+            sample_sync_slv = 1'b1; // sample the next state of the master FSM
             if (sel_operation_i[0]) begin
               agu_incr_slv[0] = 1'b1;
               slv_sync_mst_d[0] = 1'b1;
@@ -1266,7 +1315,7 @@ always_comb begin
               slv_sync_mst_d[1] = 1'b1;
             end
             if (!mst_sync_slv[2]) begin
-              saved_slv_state = VRF_INT_READ1_SLV;
+              saved_slv_state_d = VRF_INT_READ1_SLV;
               sample_sync_slv = 1'b1; // sample the next state of the master
             end
           end
@@ -1274,6 +1323,7 @@ always_comb begin
       end
     end
     VRF_INT_READ3_SLV: begin
+      sel_sync_slv = 1'b1; // default is to sample the next state of the master FSM
       // TODO: check, left unchanged for now
       if (instr_data_rvalid_i) rs3_en_slv = 1;
       // NEXT STATE SELECTION
@@ -1282,13 +1332,15 @@ always_comb begin
           instr_data_req_o = 1'b1;
           agu_get_rs1_slv = 1'b1;
           if (instr_data_gnt_i) begin
+            sample_sync_slv = 1'b1; // sample the next state of the master FSM
             agu_incr_slv[0] = 1'b1;
           end
         end
       end
     end
     VRF_INT_WRITE_SLV: begin
-      if (last_iteration_q) begin
+      sel_sync_slv = 1'b1; // default is to sample the next state of the master FSM
+      if (last_iteration_q && even_iteration) begin
         vector_done_slv = 1'b1;
       end else begin
         if (sel_operation_i[1]) begin
@@ -1299,13 +1351,14 @@ always_comb begin
             agu_get_rd_slv = 1'b1;
           end
           if (instr_data_gnt_i) begin
+            sample_sync_slv = 1'b1; // sample the next state of the master FSM
             if (sel_operation_i[0]) begin
               agu_incr_slv[1] = 1'b1;
               slv_sync_mst_d[1] = 1'b1;  // get rs2
             end // TODO: check if else should be handled
             dec_iterations_slv = 1'b1;
             if (!mst_sync_slv[0]) begin
-              saved_slv_state = VRF_INT_READ2_SLV;
+              saved_slv_state_d = VRF_INT_READ2_SLV;
               sample_sync_slv = 1'b1;
             end
           end
@@ -1333,7 +1386,7 @@ always_comb begin
     end
   end
   VRF_WRITE_SLV: begin
-    if (last_iteration_q) begin
+    if (last_iteration_q && even_iteration) begin
       vector_done_slv = 1'b1;
     end else begin
       // if next operation is READ
@@ -1391,12 +1444,16 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
   if (!rst_ni) begin
     mst_sync_slv_q <= '0;
     slv_sync_mst_q <= '0;
+    saved_mst_state_q <= VRF_IDLE_MST;
+    saved_slv_state_q <= VRF_IDLE_SLV;
   end else begin
     if (sample_sync_mst) begin
       mst_sync_slv_q <= mst_sync_slv_d;
+      saved_mst_state_q <= saved_mst_state_d;
     end
     if (sample_sync_slv) begin
       slv_sync_mst_q <= slv_sync_mst_d; // reset slave sync to allow the master to go ahead
+      saved_slv_state_q <= saved_slv_state_d;
     end
   end
 end
@@ -1411,18 +1468,28 @@ assign slv_sync_mst = (sel_sync_slv) ? slv_sync_mst_q : slv_sync_mst_d;
 assign num_bytes_elements = vl_i << sew_i;
 always_comb begin
   // Default values
-  // TODO: handle last iteration in the case of even adn odd
+  // TODO: handle last iteration in the case of even and odd
+  last_iteration_mst = (even_iteration && mst_start_slv_q) ? last_iteration_q : last_iteration_odd_q;
   last_iteration_d = last_iteration_q; // preserve previous value
+  last_iteration_odd_d = last_iteration_odd_q; // preserve previous value
   num_iterations_d = num_iterations_q; // preserve previous value
   offset_d = offset_q; // preserve previous value
   if (curr_mst_state == VRF_IDLE_MST) begin
     // Load the number of iterations at the beginning of the operation (can be used by both FSMs)
     num_iterations_d   = slide_op_i ? num_bytes_elements[31:2] - slide_offset_i[31:2] : num_bytes_elements[31:2];
     last_iteration_d = 1'b0;
+    last_iteration_odd_d = 1'b0;
     offset_d = num_bytes_elements[1:0];
   end else begin
     if (num_iterations_q == (no_offset ? 1 : 0)) begin
       last_iteration_d = 1'b1;
+      if (dec_iterations_mst || dec_iterations_slv) begin
+        num_iterations_d = num_iterations_q - 1;
+      end else begin
+        num_iterations_d = num_iterations_q;
+      end
+    end else if (num_iterations_q == 0) begin
+      last_iteration_odd_d = 1'b1;
     end else begin
       last_iteration_d = last_iteration_q;
       if (dec_iterations_mst || dec_iterations_slv) begin
@@ -1441,7 +1508,7 @@ assign agu_get_rs2_o = {agu_get_rs2_slv, agu_get_rs2_mst};
 assign agu_get_rd_o = {agu_get_rd_slv, agu_get_rd_mst};
 
 // Done signal
-assign vector_done_o = vector_done_mst | vector_done_slv;
+assign vector_done_o = vector_done_mst | vector_done_slv; // if mst_start_slv_q && !even_iteration vector_done_slv else vector_done_mst
 
 //-----------
 // Signal FFs
@@ -1451,17 +1518,21 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
     first_iteration_q <= 1'b0;
     num_iterations_q <= '0;
     last_iteration_q <= 1'b0;
+    last_iteration_odd_q <= 1'b0;
     offset_q <= '0;
     slide_first_write_q <= 1'b0;
     slide_offset_q <= '0;
+    mst_start_slv_q <= 1'b0;
     curr_demux_sel <= 1'b0;
   end else begin
     first_iteration_q <= first_iteration_d;
     num_iterations_q <= num_iterations_d;
     last_iteration_q <= last_iteration_d;
+    last_iteration_odd_q <= last_iteration_odd_d;
     offset_q <= offset_d;
     slide_first_write_q <= slide_first_write_d;
     curr_demux_sel <= next_demux_sel;
+    if (curr_mst_state == VRF_START_MST) mst_start_slv_q <= mst_start_slv;
     if (slide_offset_en) slide_offset_q <= slide_offset_i[1:0];
   end
 end
