@@ -56,6 +56,7 @@ module cve2_agu_double #(
     // counter signals
     // TODO: check the -1
     // the +3 is due to LMUL
+    // TODO: try to remove one bit and append even or odd to data and instr instead
     logic [MaxCntWidth-1:0] addr_rs1_q, addr_rs2_q, addr_rd_q, addr_rs1_d, addr_rs2_d, addr_rd_d;
     //////////////
     // COUNTERS //
@@ -121,9 +122,9 @@ module cve2_agu_double #(
                         get_rs2_i[0] ? {VRF_START_ADDR[31:VRegAddrWidth+5], rs2_i[4:3], addr_rs2_q, 2'b00} :
                         get_rd_i[0]  ? {VRF_START_ADDR[31:VRegAddrWidth+5], rd_i[4:3], addr_rd_q, 2'b00}  : '0;
     
-        instr_mem_if_addr_o = get_rs1_i[1] ? {VRF_START_ADDR[31:VRegAddrWidth+5], rs1_i[4:3], addr_rs1_q, 2'b00} :
-                                get_rs2_i[1] ? {VRF_START_ADDR[31:VRegAddrWidth+5], rs2_i[4:3], addr_rs2_q, 2'b00} :
-                                get_rd_i[1]  ? {VRF_START_ADDR[31:VRegAddrWidth+5], rd_i[4:3], addr_rd_q, 2'b00}  : '0;
+        instr_mem_if_addr_o = get_rs1_i[1] ? {VRF_START_ADDR[31:VRegAddrWidth+5], rs1_i[4:3], addr_rs1_q[MaxCntWidth-1:1],1'b1, 2'b00} :
+                                get_rs2_i[1] ? {VRF_START_ADDR[31:VRegAddrWidth+5], rs2_i[4:3], addr_rs2_q[MaxCntWidth-1:1],1'b1, 2'b00} :
+                                get_rd_i[1]  ? {VRF_START_ADDR[31:VRegAddrWidth+5], rd_i[4:3], addr_rd_q[MaxCntWidth-1:1],1'b1, 2'b00}  : '0;
     end
     
 endmodule
