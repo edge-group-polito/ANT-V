@@ -142,6 +142,8 @@ module cve2_id_stage #(
   // Slide instructions
   output logic                      vrf_slide_op_o,
   output logic                      is_slide_up_o,
+  // vmacc_vx
+  output logic                      vmacc_vx_o,
   // Vector cfg
   output logic                      vcfg_write_o,
   output logic                      vl_max_o,
@@ -707,6 +709,7 @@ module cve2_id_stage #(
     .vrf_mult_ops_o(vrf_mult_ops_o),
     .vrf_slide_op_o(vrf_slide_op),
     .is_slide_up_o(is_slide_up),
+    .vmacc_vx_o(vmacc_vx_o),
     .vx_instr_o(vx_instr_o),
     // vector immediates
     .imm_v_type_o(imm_v_type),

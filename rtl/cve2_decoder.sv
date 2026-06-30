@@ -100,6 +100,7 @@ module cve2_decoder #(
   // Slide instructions
   output logic                  vrf_slide_op_o,
   output logic                  is_slide_up_o,
+  output logic                  vmacc_vx_o,
   // Custom instruction
   output logic                  vx_instr_o,
   // immediate
@@ -283,6 +284,7 @@ module cve2_decoder #(
     // slide instructions
     vrf_slide_op_o        = 1'b0;
     is_slide_up_o         = 1'b0;
+    vmacc_vx_o            = 1'b0;
     vx_instr_o            = 1'b0;
     opcode                = opcode_e'(instr[6:0]);
 
@@ -980,6 +982,7 @@ module cve2_decoder #(
                 vrf_we_o = 1'b1;
                 vrf_sel_operation_o = 4'b1110;
                 vrf_mult_ops_o = 1'b1;
+                vmacc_vx_o = 1'b1;
               end
               {6'b10_1111, 3'b010}: begin    // vnmsac.vv
               end

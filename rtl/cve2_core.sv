@@ -325,6 +325,8 @@ module cve2_core import cve2_pkg::*; #(
   logic [31:0] vrf_instr_data_rdata;
   logic [31:0] vrf_instr_data_addr; // TODO: generate it
 
+  logic use_double_if;
+  logic vmacc_vx; // vmacc.vx instruction decoded (special case with double if)
 
   // CSR control
   logic        csr_access;
@@ -616,6 +618,8 @@ module cve2_core import cve2_pkg::*; #(
     // Slide instructions
     .vrf_slide_op_o(vrf_slide_op),
     .is_slide_up_o(is_slide_up),
+    // vmacc_vx
+    .vmacc_vx_o(vmacc_vx),
     // vcfg
     .vcfg_write_o(vcfg_write),
     .vl_max_o(),//(vl_max),
@@ -915,8 +919,8 @@ module cve2_core import cve2_pkg::*; #(
         .lsu_resp_valid_i(instr_valid_id), // TODO: is this ok?
         .lsu_busy_i(if_busy),
         // Control signals
-        .vector_op_i(vrf_req),
-        .vector_mem_op_i(1'b0) // TODO: check
+        .vector_op_i(use_double_if), // TODO: ad-hoc signal produced by the interface
+        .vector_mem_op_i(1'b0)
       );
       assign vrf_instr_data_err = 1'b0; // Not used
     end else begin : gen_no_instr_arbiter
@@ -1123,6 +1127,7 @@ module cve2_core import cve2_pkg::*; #(
         .instr_data_be_o(vrf_instr_data_be),
         .instr_data_wdata_o(vrf_instr_data_wdata),
         .instr_data_rdata_i(vrf_instr_data_rdata),
+        .use_double_if_o(use_double_if),
         // LSU control signals
         .data_load_addr_o(lsu_if_load_addr),
         .lsu_gnt_i(vrf_lsu_gnt),
@@ -1254,7 +1259,7 @@ module cve2_core import cve2_pkg::*; #(
   if (RV32VX) begin : agu_if_block
     // AGU, translates the VR numbero to a memory address
     // Custom instructions have vrf idx encoded in the scalar register with idx in rs2 field
-    assign vrf_raddr_a  = (vx_instr) ? rf_rdata_b[20:16] : rf_raddr_a;
+    assign vrf_raddr_a  = (vmacc_vx && DoubleIf) ? ( (vx_instr) ? rf_rdata_b[4:0]   : rf_waddr_wb) : ((vx_instr) ? rf_rdata_b[20:16] : rf_raddr_a);
     assign vrf_raddr_b  = (vx_instr) ? rf_rdata_b[12:8]  : rf_raddr_b;
     assign vrf_waddr_wb = (vx_instr) ? rf_rdata_b[4:0]   : rf_waddr_wb;
     if (DoubleIf) begin : gen_agu_double_if
@@ -1278,6 +1283,7 @@ module cve2_core import cve2_pkg::*; #(
         // slide instructions
         .is_slide_i(vrf_slide_op),
         .is_slide_up_i(is_slide_up),
+        .vmacc_vx_i(vmacc_vx),
         // memory address output
         .addr_i(alu_adder_result_ex),
         .slide_start_addr_o(agu_slide_addr),

@@ -36,6 +36,7 @@ module cve2_agu_double #(
     // slide support signals
     input logic is_slide_i,       // the current instruction is a slide
     input logic is_slide_up_i,    // 1 - slide up, 0 - slide down
+    input logic vmacc_vx_i,
 
     // to/from pipeline
     input  logic [AddrWidth-1:0] addr_i,   // address with OFFSET
@@ -120,7 +121,8 @@ module cve2_agu_double #(
         // chain 2 0s for byte alignment
         mem_if_addr_o = get_rs1_i[0] ? {VRF_START_ADDR[31:VRegAddrWidth+5], rs1_i[4:3], addr_rs1_q, 2'b00} :
                         get_rs2_i[0] ? {VRF_START_ADDR[31:VRegAddrWidth+5], rs2_i[4:3], addr_rs2_q, 2'b00} :
-                        get_rd_i[0]  ? {VRF_START_ADDR[31:VRegAddrWidth+5], rd_i[4:3], addr_rd_q, 2'b00}  : '0;
+                        get_rd_i[0]  ? (vmacc_vx_i ? ({VRF_START_ADDR[31:VRegAddrWidth+5], rd_i[4:3], addr_rd_q[MaxCntWidth-1:1],1'b0, 2'b00}):
+                                             ({VRF_START_ADDR[31:VRegAddrWidth+5], rd_i[4:3], addr_rd_q, 2'b00}))  : '0;
     
         instr_mem_if_addr_o = get_rs1_i[1] ? {VRF_START_ADDR[31:VRegAddrWidth+5], rs1_i[4:3], addr_rs1_q[MaxCntWidth-1:1],1'b1, 2'b00} :
                                 get_rs2_i[1] ? {VRF_START_ADDR[31:VRegAddrWidth+5], rs2_i[4:3], addr_rs2_q[MaxCntWidth-1:1],1'b1, 2'b00} :
