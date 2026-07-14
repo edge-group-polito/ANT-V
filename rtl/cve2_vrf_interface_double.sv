@@ -120,6 +120,7 @@ typedef enum logic [5:0] {
   VRF_MC_READ,
   VRF_MC_READ_FIRST,
   VRF_MC_WRITE_SINGLE,
+  VRF_MC_FINISH,
   ERR_STATE
 } mst_state_t;
 
@@ -563,6 +564,111 @@ always_comb begin
       end
     end
     
+    // Multicycle OPS
+    // --------------
+    // vmulh
+    // Support is limited to two cycles ops only for now, otherwise the mechanism would be more complex
+
+
+    VRF_MC_READ1: begin
+      if (sel_operation_i[1]) begin
+        if (!last_iteration_q) begin
+          if (data_gnt_i) begin
+            next_mst_state = VRF_MC_READ2;
+          end else begin
+            next_mst_state = VRF_MC_READ1;
+          end
+        end else begin
+          next_mst_state = VRF_MC_READ2;
+        end
+      end else begin
+        next_mst_state = ERR_STATE;
+      end
+    end
+
+    VRF_MC_READ2: begin
+      if (first_iteration_q && !last_iteration_q) begin
+        if (num_iterations_q != 1) begin // at least another iteration to perform
+          if (data_gnt_i) begin
+            next_mst_state = VRF_MC_READ1;
+          end else begin
+            next_mst_state = VRF_MC_READ2;
+          end
+        end else begin
+          next_mst_state = VRF_MC_READ1;
+        end
+      end else begin
+        if (sel_operation_i[3]) begin
+          if (data_gnt_i) begin
+            if (!first_iteration_q && !last_iteration_q) begin
+              next_mst_state = VRF_MC_WRITE;
+            end else begin
+              next_mst_state = VRF_MC_FINISH;
+            end
+          end else begin
+            next_mst_state = VRF_MC_READ2;
+          end
+        end else begin
+          next_mst_state = ERR_STATE;
+        end
+      end
+    end
+
+    VRF_MC_WRITE: begin
+      if (last_iteration_q) begin
+        next_mst_state = VRF_MC_FINISH;
+      end else begin
+        if (sel_operation_i[1]) begin
+          if (data_gnt_i) begin
+            next_mst_state = VRF_MC_READ1;
+          end else begin
+            next_mst_state = VRF_MC_WRITE;
+          end
+        end else begin
+          next_mst_state = ERR_STATE;
+        end
+      end
+    end
+
+    VRF_MC_READ: begin
+      if (data_gnt_i) begin
+        if (!first_iteration_q) begin
+          next_mst_state = VRF_MC_WRITE_SINGLE;
+        end else begin
+          next_mst_state = VRF_MC_READ_FIRST;
+        end
+      end else begin
+        next_mst_state = VRF_MC_READ;
+      end
+    end
+  
+    VRF_MC_READ_FIRST: begin
+      if (data_rvalid_i) begin
+        next_mst_state = VRF_MC_WRITE_SINGLE;
+      end else begin
+        next_mst_state = VRF_MC_READ_FIRST;
+      end
+    end
+
+    VRF_MC_WRITE_SINGLE: begin
+      if (data_gnt_i) begin
+        next_mst_state = VRF_MC_READ;
+      end else begin
+        next_mst_state = VRF_MC_WRITE_SINGLE;
+      end
+      if (last_iteration_q) begin
+        next_mst_state = VRF_IDLE_MST;
+      end
+    end
+
+    VRF_MC_FINISH: begin
+      next_mst_state = VRF_IDLE_MST;
+    end
+
+    ERR_STATE: begin
+      next_mst_state = ERR_STATE;
+    end
+
     default: begin
     end
 
@@ -664,6 +770,7 @@ always_comb begin
           end
           if (multicycle_op_i) begin
             // TODO: left unchanged MC
+            mst_start_slv = 1'b0; // for now single interface only supported
             first_mc_write_d = 1'b1;
             next_mc_demux_sel = 1'b0;
           end
@@ -674,7 +781,7 @@ always_comb begin
           if (sel_operation_i[0]) agu_get_rs1_mst = 1'b1;
           else agu_get_rs2_mst = 1'b1;
           if (data_gnt_i) begin
-            if (!slide_op_i) begin
+            if (!slide_op_i && !multicycle_op_i) begin
               // Start slave FSM on .vx except on slide and move
               mst_start_slv = 1'b1;
             end
@@ -1058,6 +1165,145 @@ always_comb begin
   //---------------
   // Multicycle Ops
   //---------------
+
+  VRF_MC_READ1: begin
+    if (data_rvalid_i && sel_operation_i[0]) begin
+      rs1_en_mst = 1'b1;
+    end
+    // Request RS2
+    if (sel_operation_i[1]) begin
+      if (!last_iteration_q) begin
+        data_req_o = 1'b1;
+        if (sel_operation_i[0]) begin
+          agu_get_rs2_mst = 1'b1;
+          if (data_gnt_i) begin
+            agu_incr_mst[1] = 1'b1;
+          end
+        end
+      end
+    end
+    if (!first_iteration_q) begin
+      rd_en_mst = 1'b1;
+    end
+  end
+
+  VRF_MC_READ2: begin
+    if (data_rvalid_i && sel_operation_i[0]) begin
+      rs2_en_mst = 1'b1;
+      next_mc_demux_sel = ~curr_mc_demux_sel;
+    end
+    if (first_iteration_q && !last_iteration_q) begin
+      if (num_iterations_q != 1) begin
+        data_req_o = 1'b1;
+        if (sel_operation_i[0]) begin
+          agu_get_rs1_mst = 1'b1;
+          if (data_gnt_i) begin
+            agu_incr_mst[0] = 1'b1;
+            if (!first_iteration_q) begin
+              dec_iterations_mst = 1'b1;
+            end
+            //if (num_iterations_q == (no_offset ? 1 : 0))
+            //  last_iteration_d = 1'b1;
+          end
+        end
+      end else begin
+        dec_iterations_mst = 1'b1;
+      end
+      if (first_iteration_q) begin
+        first_iteration_d = 1'b0;
+      end
+    end else begin
+      if (sel_operation_i[3]) begin
+        data_req_o = 1'b1;
+        data_we_o = 1'b1;
+        agu_get_rd_mst = 1'b1;
+        if (data_gnt_i) begin
+          agu_incr_mst[2] = 1'b1;
+          if (!first_iteration_q && !last_iteration_q) begin
+            dec_iterations_mst = 1'b1;
+            if (num_iterations_q == (no_offset ? 1 : 0)) begin
+              ex_stall_o = 1'b0;
+            end else begin
+              ex_stall_o = 1'b1; // stall the EX stage
+            end
+            next_mc_mux_sel = ~curr_mc_mux_sel;
+            next_mc_rd_mux_sel = ~curr_mc_rd_mux_sel;
+            next_mc_rd_demux_sel = ~curr_mc_rd_demux_sel;
+          //end else begin
+          //  vector_done_mst = 1'b1;
+          end
+        end
+      end
+      if (first_mc_write_q) begin
+        first_mc_write_d = 1'b0;
+      end
+    end
+  end
+
+  VRF_MC_WRITE: begin
+    //if (last_iteration_q) begin
+    //  vector_done_mst = 1'b1;
+    //end else begin
+    if (!last_iteration_q) begin
+      if (sel_operation_i[1]) begin
+        data_req_o = 1'b1;
+        if (sel_operation_i[0]) agu_get_rs1_mst = 1'b1;
+          if (data_gnt_i) begin
+            if (sel_operation_i[0]) begin
+              agu_incr_mst[0] = 1'b1;
+            end
+          end
+      end
+    end
+  end
+
+  VRF_MC_READ: begin
+    data_req_o = 1'b1;
+    agu_get_rs2_mst = 1'b1;
+    if (data_gnt_i) begin
+      agu_incr_mst[1] = 1'b1;
+      if (num_iterations_q != (no_offset ? 1 : 0)) begin
+        dec_iterations_mst = 1'b1;
+      end
+      if (first_iteration_q) begin
+        if (data_rvalid_i) begin
+          rs2_en_mst = 1'b1;
+          next_mc_demux_sel = ~curr_mc_demux_sel;
+        end
+        first_iteration_d = 1'b0;
+        ex_stall_o = 1'b1; // stall the EX stage until the next read is done
+      end
+    end
+  end
+
+  VRF_MC_READ_FIRST: begin
+    if (data_rvalid_i) begin
+      rs2_en_mst = 1'b1;
+      next_mc_demux_sel = ~curr_mc_demux_sel;
+    end
+  end
+
+  VRF_MC_WRITE_SINGLE: begin
+    data_req_o = 1'b1;
+    data_we_o = 1'b1;
+    agu_get_rd_mst = 1'b1;
+    if (data_rvalid_i) begin
+      rs2_en_mst = 1'b1;
+      next_mc_demux_sel = ~curr_mc_demux_sel;
+    end
+    if (data_gnt_i) begin
+      agu_incr_mst[2] = 1'b1;
+      next_mc_mux_sel = ~curr_mc_mux_sel;
+    end
+    if (last_iteration_q) begin
+      vector_done_mst = 1'b1;
+    end
+  end
+
+  VRF_MC_FINISH: begin
+    ex_stall_o = 1'b1; // unstall the EX stage
+    vector_done_mst = 1'b1;
+  end
   default: begin
   end
 
