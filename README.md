@@ -407,6 +407,11 @@ Additional package constants from `cve2_pkg.sv`:
 | `VAddrWidth` | `$clog2(VLENb/8)` | Address width for VRF |
 | `VRF_START_ADDR_FULL` | `32'h00020000` | Default VRF base address |
 
+### 6.3 FSM States
+
+The VRF interface (`cve2_vrf_interface.sv`) coordinates memory-mapped vector register file accesses through the following finite state machine:
+
+![VRF Interface FSM](doc/fsm_vrf.png)
 
 ## 7. Limitations and Unsupported Features
 
