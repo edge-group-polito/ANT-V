@@ -467,41 +467,34 @@ module cve2_id_stage #(
   end
 
   // Main ALU MUX for Operand A
-  // 2 levels
-  // it has been modified to correctly handle immediate and scalar values when SEW<32 for vector instructions
+  // Split in 2 levels to shorten the critical path: the first level selects the source, the
+  // second one replicates scalar sources (rs1/imm) on all the elements when SEW<32 for vector
+  // arithmetic instructions. The second level selectors only depend on decoded signals, so they
+  // are ready in parallel with the source selection.
   logic [31:0] opa_src;
+  logic        opa_bcast;
+
   always_comb begin : opa_src_mux
-    if (RV32VX) begin
-      unique case (alu_op_a_mux_sel)
-        OP_A_REG_A:  opa_src = rf_rdata_a_fwd;
-        OP_A_VREG:   opa_src = vrf_rdata_a_i;
-        OP_A_FWD:    opa_src = lsu_addr_last_i;
-        OP_A_CURRPC: opa_src = pc_id_i;
-        OP_A_IMM:    opa_src = imm_a;
-        default:     opa_src = pc_id_i;
-      endcase
-    end else begin
-      unique case (alu_op_a_mux_sel)
-        OP_A_REG_A:  alu_operand_a = rf_rdata_a_fwd;
-        OP_A_FWD:    alu_operand_a = lsu_addr_last_i;
-        OP_A_CURRPC: alu_operand_a = pc_id_i;
-        OP_A_IMM:    alu_operand_a = imm_a;
-        default:     alu_operand_a = pc_id_i;
-      endcase
-    end
+    unique case (alu_op_a_mux_sel)
+      OP_A_REG_A:  opa_src = rf_rdata_a_fwd;
+      OP_A_VREG:   opa_src = vrf_rdata_a_i;     // [VEC] Vector extension
+      OP_A_FWD:    opa_src = lsu_addr_last_i;
+      OP_A_CURRPC: opa_src = pc_id_i;
+      OP_A_IMM:    opa_src = imm_a;
+      default:     opa_src = pc_id_i;
+    endcase
   end
 
+  // Vector register operands already hold SEW-wide elements, only scalar sources are replicated
+  assign opa_bcast = varith_op & ((alu_op_a_mux_sel == OP_A_REG_A) | (alu_op_a_mux_sel == OP_A_IMM));
+
   always_comb begin : alu_operand_a_mux
-    if (RV32VX) begin
-      unique casez ({slide_addr_req_i, varith_op, vsew_i})
-        {1'b1, 1'b?, 3'b???}: alu_operand_a = vslided_op_a;
-        {1'b0, 1'b1, VSEW_8}:  alu_operand_a = {4{opa_src[7:0]}};
-        {1'b0, 1'b1, VSEW_16}: alu_operand_a = {2{opa_src[15:0]}};
-        default:               alu_operand_a = opa_src;
-      endcase
-    end else begin
-      alu_operand_a = opa_src;
-    end
+    unique casez ({RV32VX & slide_addr_req_i, opa_bcast, vsew_i})
+      {1'b1, 1'b?, 3'b???}:  alu_operand_a = vslided_op_a;   // Support for vector slide
+      {1'b0, 1'b1, VSEW_8}:  alu_operand_a = {4{opa_src[7:0]}};
+      {1'b0, 1'b1, VSEW_16}: alu_operand_a = {2{opa_src[15:0]}};
+      default:               alu_operand_a = opa_src;
+    endcase
   end
 
   op_a_sel_e  unused_a_mux_sel;
@@ -533,72 +526,68 @@ module cve2_id_stage #(
       IMM_B_VCFG})
 
   // ALU MUX for Operand B - Modified to include vector register
-  // it has been modified to correctly handle immediate and scalar values when SEW<32 for vector instructions
+  // Split in 2 levels as for operand A, scalar sources are replicated when SEW<32 for vector
+  // arithmetic instructions.
   logic [31:0] opb_src;
+  logic        opb_bcast;
+
+  always_comb begin : opb_src_mux
+    unique case (alu_op_b_mux_sel)
+      OP_B_REG_B: opb_src = rf_rdata_b_fwd;
+      OP_B_VREG:  opb_src = vrf_rdata_b_i;     // [VEC] Vector extension
+      OP_B_IMM:   opb_src = imm_b;
+      default:    opb_src = rf_rdata_b_fwd;
+    endcase
+  end
+
+  assign opb_bcast = varith_op & ((alu_op_b_mux_sel == OP_B_REG_B) | (alu_op_b_mux_sel == OP_B_IMM));
+
   always_comb begin : alu_operand_b_mux
-    if (RV32VX) begin
-      unique case (alu_op_b_mux_sel)
-        OP_B_REG_B: opb_src = rf_rdata_b_fwd;
-        OP_B_VREG:  opb_src = vrf_rdata_b_i;
-        OP_B_IMM:   opb_src = imm_b;
-        default:    opb_src = rf_rdata_b_fwd;
-      endcase
-    end else begin
-      alu_operand_b = (alu_op_b_mux_sel == OP_B_IMM) ? imm_b : rf_rdata_b_fwd;
-    end
+    unique casez ({opb_bcast, vsew_i})
+      {1'b1, VSEW_8}:  alu_operand_b = {4{opb_src[7:0]}};
+      {1'b1, VSEW_16}: alu_operand_b = {2{opb_src[15:0]}};
+      default:         alu_operand_b = opb_src;
+    endcase
   end
-
-  always_comb begin: alu_operand_b_vsew_mux
-    if (RV32VX) begin
-      unique casez ({varith_op, vsew_i})
-        {1'b1, VSEW_8}:  alu_operand_b = {4{opb_src[7:0]}};
-        {1'b1, VSEW_16}: alu_operand_b = {2{opb_src[15:0]}};
-        default:         alu_operand_b = opb_src;
-      endcase
-    end else begin
-      alu_operand_b = opb_src;
-    end
-  end
-
-  logic [31:0] opa_mult_src, opb_mult_src;
-  logic [31:0] alu_operand_a_mult, alu_operand_b_mult;
-  always_comb begin : alu_operand_b_mult_mux
-    opb_mult_src = '0;
-    opa_mult_src = '0;
-    alu_operand_a_mult = '0;
-    alu_operand_b_mult = '0;
-    if (RV32VX) begin
-     // different muxing for mult to shorten the critical path
-      unique case (alu_op_a_mux_sel)
-        OP_A_VREG:  opa_mult_src = vrf_rdata_a_i;
-        default:    opa_mult_src = rf_rdata_a_fwd;
-      endcase
-      unique case ({vsew_i})
-        {VSEW_8}:  alu_operand_a_mult = {4{opa_mult_src[7:0]}};
-        {VSEW_16}: alu_operand_a_mult = {2{opa_mult_src[15:0]}};
-        default:         alu_operand_a_mult = opa_mult_src;
-      endcase
-      // Operand B
-      unique case (alu_op_b_mux_sel)
-        OP_B_VREG:  opb_mult_src = vrf_rdata_b_i;
-        default:    opb_mult_src = rf_rdata_b_fwd;
-      endcase
-      unique case ({vsew_i})
-        {VSEW_8}:  alu_operand_b_mult = {4{opb_mult_src[7:0]}};
-        {VSEW_16}: alu_operand_b_mult = {2{opb_mult_src[15:0]}};
-        default:         alu_operand_b_mult = opb_mult_src;
-      endcase
-
-    end
-  end
-
 
   // Vector ALU MUX for Operand C - now it can take just one value
   assign alu_operand_c_ex_o = (RV32VX) ? vrf_rdata_c_i : 32'h0;
-  // MUL/DIV MUX for Operand A
-  assign multdiv_operand_a_ex_o = (RV32VX) ? alu_operand_a_mult : rf_rdata_a_fwd;
-  // MUL/DIV MUX for Operand B
-  assign multdiv_operand_b_ex_o = (RV32VX) ? alu_operand_b_mult : rf_rdata_b_fwd;
+
+  // MUL/DIV operand MUXes
+  // Dedicated MUXes instead of reusing the ALU operands, to shorten the critical path into the
+  // multiplier: MUL/DIV (scalar and vector) only take rs1/rs2 or a vector register as operands,
+  // never the PC, the immediates or the slide address.
+  if (RV32VX) begin : gen_multdiv_operand_vec
+    logic [31:0] opa_mult_src, opb_mult_src;
+    logic        opa_mult_bcast, opb_mult_bcast;
+
+    assign opa_mult_src = (alu_op_a_mux_sel == OP_A_VREG) ? vrf_rdata_a_i : rf_rdata_a_fwd;
+    assign opb_mult_src = (alu_op_b_mux_sel == OP_B_VREG) ? vrf_rdata_b_i : rf_rdata_b_fwd;
+
+    // Replicate rs1/rs2 only for vector instructions (.vx variants): scalar MUL/DIV must not be
+    // affected by the current SEW
+    assign opa_mult_bcast = varith_op & (alu_op_a_mux_sel != OP_A_VREG);
+    assign opb_mult_bcast = varith_op & (alu_op_b_mux_sel != OP_B_VREG);
+
+    always_comb begin : multdiv_operand_a_mux
+      unique casez ({opa_mult_bcast, vsew_i})
+        {1'b1, VSEW_8}:  multdiv_operand_a_ex_o = {4{opa_mult_src[7:0]}};
+        {1'b1, VSEW_16}: multdiv_operand_a_ex_o = {2{opa_mult_src[15:0]}};
+        default:         multdiv_operand_a_ex_o = opa_mult_src;
+      endcase
+    end
+
+    always_comb begin : multdiv_operand_b_mux
+      unique casez ({opb_mult_bcast, vsew_i})
+        {1'b1, VSEW_8}:  multdiv_operand_b_ex_o = {4{opb_mult_src[7:0]}};
+        {1'b1, VSEW_16}: multdiv_operand_b_ex_o = {2{opb_mult_src[15:0]}};
+        default:         multdiv_operand_b_ex_o = opb_mult_src;
+      endcase
+    end
+  end else begin : gen_multdiv_operand_scalar
+    assign multdiv_operand_a_ex_o = rf_rdata_a_fwd;
+    assign multdiv_operand_b_ex_o = rf_rdata_b_fwd;
+  end
 
 
   /////////////////////////////////////////
