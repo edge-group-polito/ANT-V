@@ -1393,6 +1393,13 @@ module cve2_decoder #(
               vrf_we_o = 1'b1;
               vrf_sel_operation_o = 4'b1110;
               vrf_mult_ops_o = 1'b1;
+              // Same as the standard vmacc.vx: the double interface addresses the
+              // accumulator through the rs1 counter (slave) and an even-forced rd
+              // counter (master), both keyed on this flag. cve2_core.sv already has
+              // the vx_instr branch (vd index from rf_rdata_b[4:0]). Without it the
+              // slave read/wrote its accumulator in the rs1-field register (v0 in
+              // matmul, i.e. B row 0) and the master wrote to the wrong word.
+              vmacc_vx_o = 1'b1;
             end
             //{6'b10_1111, 3'b010}: begin    // xvnmsac.vv
             //end
