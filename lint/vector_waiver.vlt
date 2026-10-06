@@ -11,6 +11,8 @@ lint_off -rule UNUSED -file "*/rtl/cve2_vrf_interface*.sv" -match "Parameter is 
 lint_off -rule UNUSED -file "*/rtl/cve2_cs_registers_vec.sv" -match "Bits of signal are not used: 'alu_operand_b_ex_i'[31:8]"
 lint_off -rule WIDTH -file "*/rtl/cve2_cs_registers_vec.sv" -match "Operator * expects 32 bits on the LHS, but LHS's SIGNED generates 3 bits."
 lint_off -rule UNUSED -file "*/rtl/cve2_agu*.sv" -match "Bits of signal are not used: 'addr_i'[*]"
+lint_off -rule UNUSED -file "*/rtl/cve2_agu*.sv" -match "Bits of signal are not used: 'vrf_effective_start_addr'[*:0]"
+
 
 lint_off -rule UNUSED -file "*/rtl/cve2_multdiv_fast_fracturable.sv" -match "Bits of signal are not used: 'mac_res_d_sca'[33:32]"
 lint_off -rule UNUSED -file "*/rtl/cve2_alu.sv" -match "Bits of signal are not used: 'vsew_i'[2]"

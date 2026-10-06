@@ -15,10 +15,14 @@
 module cve2_agu_double #(
     parameter int unsigned AddrWidth = 32,
     parameter int unsigned VRF_START_ADDR = 32'h00010000, // base address of the VRF
+    parameter bit VRFDynamic = 0, // 1 - the VRF base address is dynamic and can be changed at runtime writing the corresponding CSR
     parameter int unsigned VLEN = 128 // Max length in bits of vector registers
 ) (
     input logic clk_i,
     input logic rst_ni,
+    
+    // VRF base address if VRFDynamic is 1, otherwise it is the default VRF_START_ADDR
+    input logic [31:0] vrf_addr_start_i,
 
     // input logic [....] vrf_base_addr_i, // base address of the VRF
     // addresses of registers
@@ -59,6 +63,12 @@ module cve2_agu_double #(
     // the +3 is due to LMUL
     // TODO: try to remove one bit and append even or odd to data and instr instead
     logic [MaxCntWidth-1:0] addr_rs1_q, addr_rs2_q, addr_rd_q, addr_rs1_d, addr_rs2_d, addr_rd_d;
+
+    // Effective VRF start address, depends on the mode we are operating in (dynamic or static)        
+    logic [31:0] vrf_effective_start_addr;
+    
+    assign vrf_effective_start_addr = VRFDynamic ? vrf_addr_start_i : VRF_START_ADDR;
+
     //////////////
     // COUNTERS //
     //////////////
@@ -100,33 +110,21 @@ module cve2_agu_double #(
     // OUTPUT //
     ////////////
 
-    // Multiplexer for the output address
-    //always_comb begin
-    //    if (load_i && is_slide_i) begin
-    //        slide_start_addr_o = {VRF_START_ADDR, !is_slide_up_i ? rs2_i : rd_i, 4'b0000};
-    //    end else begin
-    //        slide_start_addr_o = '0;
-    //    end
- //
-    //    mem_if_addr_o = get_rs1_i ? {VRF_START_ADDR, rs1_i[4:3], addr_rs1_q, 2'b00} :
-    //                 get_rs2_i ? {VRF_START_ADDR, rs2_i[4:3], addr_rs2_q, 2'b00} :
-    //                 get_rd_i  ? {VRF_START_ADDR, rd_i[4:3], addr_rd_q, 2'b00}  : '0;
-    //end
     always_comb begin
         if (load_i && is_slide_i) begin
-            slide_start_addr_o = {VRF_START_ADDR[31:VRegAddrWidth+5], !is_slide_up_i ? rs2_i : rd_i, {VRegAddrWidth{1'b0}}};
+            slide_start_addr_o = {vrf_effective_start_addr[31:VRegAddrWidth+5], !is_slide_up_i ? rs2_i : rd_i, {VRegAddrWidth{1'b0}}};
         end else begin
             slide_start_addr_o = '0;
         end
         // chain 2 0s for byte alignment
-        mem_if_addr_o = get_rs1_i[0] ? {VRF_START_ADDR[31:VRegAddrWidth+5], rs1_i[4:3], addr_rs1_q, 2'b00} :
-                        get_rs2_i[0] ? {VRF_START_ADDR[31:VRegAddrWidth+5], rs2_i[4:3], addr_rs2_q, 2'b00} :
-                        get_rd_i[0]  ? (vmacc_vx_i ? ({VRF_START_ADDR[31:VRegAddrWidth+5], rd_i[4:3], addr_rd_q[MaxCntWidth-1:1],1'b0, 2'b00}):
-                                             ({VRF_START_ADDR[31:VRegAddrWidth+5], rd_i[4:3], addr_rd_q, 2'b00}))  : '0;
+        mem_if_addr_o = get_rs1_i[0] ? {vrf_effective_start_addr[31:VRegAddrWidth+5], rs1_i[4:3], addr_rs1_q, 2'b00} :
+                        get_rs2_i[0] ? {vrf_effective_start_addr[31:VRegAddrWidth+5], rs2_i[4:3], addr_rs2_q, 2'b00} :
+                        get_rd_i[0]  ? (vmacc_vx_i ? ({vrf_effective_start_addr[31:VRegAddrWidth+5], rd_i[4:3], addr_rd_q[MaxCntWidth-1:1],1'b0, 2'b00}):
+                                             ({vrf_effective_start_addr[31:VRegAddrWidth+5], rd_i[4:3], addr_rd_q, 2'b00}))  : '0;
     
-        instr_mem_if_addr_o = get_rs1_i[1] ? {VRF_START_ADDR[31:VRegAddrWidth+5], rs1_i[4:3], addr_rs1_q[MaxCntWidth-1:1],1'b1, 2'b00} :
-                                get_rs2_i[1] ? {VRF_START_ADDR[31:VRegAddrWidth+5], rs2_i[4:3], addr_rs2_q[MaxCntWidth-1:1],1'b1, 2'b00} :
-                                get_rd_i[1]  ? {VRF_START_ADDR[31:VRegAddrWidth+5], rd_i[4:3], addr_rd_q[MaxCntWidth-1:1],1'b1, 2'b00}  : '0;
+        instr_mem_if_addr_o = get_rs1_i[1] ? {vrf_effective_start_addr[31:VRegAddrWidth+5], rs1_i[4:3], addr_rs1_q[MaxCntWidth-1:1],1'b1, 2'b00} :
+                                get_rs2_i[1] ? {vrf_effective_start_addr[31:VRegAddrWidth+5], rs2_i[4:3], addr_rs2_q[MaxCntWidth-1:1],1'b1, 2'b00} :
+                                get_rd_i[1]  ? {vrf_effective_start_addr[31:VRegAddrWidth+5], rd_i[4:3], addr_rd_q[MaxCntWidth-1:1],1'b1, 2'b00}  : '0;
     end
     
 endmodule

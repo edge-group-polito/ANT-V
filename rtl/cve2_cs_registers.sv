@@ -27,6 +27,7 @@ module cve2_cs_registers #(
   parameter int unsigned      VLEN              = 0,
   // Default initialization value for VRF base address (in case we do not want it to be all 0s)
   parameter logic [31:0]      VRF_START_ADDR    = 32'h00020000,
+  parameter bit               VRFDynamic        = 0,
   parameter bit               RV32E             = 0,
   parameter cve2_pkg::rv32m_e RV32M             = cve2_pkg::RV32MFast,
   parameter cve2_pkg::rv32b_e RV32B             = cve2_pkg::RV32BNone
@@ -790,7 +791,7 @@ import cve2_pkg::*;
   // Custom RV32VX CSRs
   // ------------------
   // Start address of the VRF
-  if (RV32VX) begin
+  if (RV32VX && VRFDynamic) begin
     assign csr_vrfaddr_o = vrfaddr_q;
   end else begin
     assign csr_vrfaddr_o = '0;
@@ -970,7 +971,7 @@ import cve2_pkg::*;
   //------------
   // RV32VX CSRs
   //------------
-  if (RV32VX) begin : gen_rv32vx_csrs
+  if (RV32VX && VRFDynamic) begin : gen_rv32vx_csrs
     cve2_csr #(
       .Width     (32),
       .ShadowCopy(1'b0),
@@ -983,6 +984,8 @@ import cve2_pkg::*;
       .rd_data_o (vrfaddr_q),
       .rd_error_o()
     );
+  end else begin : gen_rv32vx_csrs_disabled
+    assign vrfaddr_q = '0;
   end
 
   // MSTACK

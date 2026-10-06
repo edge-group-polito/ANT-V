@@ -27,6 +27,7 @@ module cve2_core import cve2_pkg::*; #(
   parameter int unsigned VRF_START_ADDR    = 32'h00010000,
   parameter bit          DbgTriggerEn      = 1'b0,
   parameter bit          DoubleIf          = 1'b0,
+  parameter bit          VRFDynamic        = 1'b0, // 1 - the VRF base address is dynamic and can be changed at runtime writing the corresponding CSR
   parameter int unsigned DbgHwBreakNum     = 1,
   parameter bit          XInterface        = 1'b0
 ) (
@@ -306,6 +307,9 @@ module cve2_core import cve2_pkg::*; #(
   // EEW/EMUL
   logic [2:0] vmem_ops_eew;
   
+  // Scalar CSRs <--> AGU (vec signals)
+  logic [31:0] csr_vrf_addr_start; // Starting address for vector register file accesses (used by AGU for address generation)
+
   // If <--> mem swithc Vec
   logic if_instr_req;
   logic [31:0] if_instr_addr;
@@ -1268,10 +1272,13 @@ module cve2_core import cve2_pkg::*; #(
       cve2_agu_double #(
         .AddrWidth(32),
         .VRF_START_ADDR(VRF_START_ADDR),
+        .VRFDynamic(VRFDynamic),
         .VLEN(VLEN)
       ) agu_i (
         .clk_i(clk_i),
         .rst_ni(rst_ni),
+        // vrf start address from CSR
+        .vrf_addr_start_i(csr_vrf_addr_start),
         // register addresses
         .rs1_i(vrf_raddr_a),
         .rs2_i(vrf_raddr_b),
@@ -1297,10 +1304,13 @@ module cve2_core import cve2_pkg::*; #(
       cve2_agu #(
         .AddrWidth(32),
         .VRF_START_ADDR   (VRF_START_ADDR),
+        .VRFDynamic       (VRFDynamic),
         .VLEN(VLEN)
       ) agu_i (
         .clk_i(clk_i),
         .rst_ni(rst_ni),
+        // vrf start address from CSR
+        .vrf_addr_start_i(csr_vrf_addr_start),
         // register addresses
         .rs1_i(vrf_raddr_a),
         .rs2_i(vrf_raddr_b),
@@ -1351,6 +1361,7 @@ module cve2_core import cve2_pkg::*; #(
     .RV32E            (RV32E),
     .RV32M            (RV32M),
     .RV32VX           (RV32VX),
+    .VRFDynamic       (VRFDynamic),
     .VLEN             (VLEN),
     .VRF_START_ADDR   (VRF_START_ADDR),
     .RV32B            (RV32B)
@@ -1403,8 +1414,10 @@ module cve2_core import cve2_pkg::*; #(
     .debug_ebreaku_o    (debug_ebreaku),
     .trigger_match_o    (trigger_match),
 
+
     // RV32VX related CSRs
     .csr_vrfaddr_o (csr_vrf_addr_start),
+
     .pc_if_i(pc_if),
     .pc_id_i(pc_id),
 

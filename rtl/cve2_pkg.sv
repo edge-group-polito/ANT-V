@@ -12,8 +12,9 @@ package cve2_pkg;
   //////////////////////
   // Vector Extension //
   //////////////////////
-  // Default values, should be actually passed by the upstream module
-  localparam logic [31:0] VLENb               = 32'd4096; // Vector register file length in bits
+
+  localparam logic [31:0] VLENb               = 32'd2056; // Vector register file length in bits
+  //localparam int unsigned VAddrWidth          = $clog2(VLENb / 8);
   localparam logic [31:0] VRF_START_ADDR_FULL = 32'h00020000;
   
 
@@ -484,6 +485,7 @@ package cve2_pkg;
     // Custom CSRs for RV32x extension
     // Custom CSRs encoding space R/W 0x800-0x8FF
     CSR_VRFADDR       = 12'h8E0,
+
     // Machine Counter/Timers
     CSR_MCOUNTINHIBIT  = 12'h320,
     CSR_MHPMEVENT3     = 12'h323,
