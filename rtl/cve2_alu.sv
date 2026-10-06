@@ -1440,8 +1440,8 @@ module cve2_alu #(
       ALU_SH3ADD,
       // Vector operations TODO: maybe no need to use flag here??
       ALU_MOVE,
-      ALU_MAC, 
-      //ALU_NMSAC, ALU_MADD, ALU_NMSUB,
+      ALU_MAC,
+      //ALU_NMSAC,ALU_MADD, ALU_NMSUB,
       ALU_SLIDE : result_o = adder_result;
 
       // Shift Operations

@@ -984,18 +984,18 @@ module cve2_decoder #(
                 vrf_mult_ops_o = 1'b1;
                 vmacc_vx_o = 1'b1;
               end
-              {6'b10_1111, 3'b010}: begin    // vnmsac.vv
-              end
-              {6'b10_1111, 3'b110}: begin    // vnmsac.vx
-              end
-              {6'b10_1001, 3'b010}: begin    // vmadd.vv
-              end
-              {6'b10_1001, 3'b110}: begin    // vmadd.vx
-              end
-              {6'b10_1011, 3'b010}: begin    // vnmsub.vv
-              end
-              {6'b10_1011, 3'b110}: begin    // vnmsub.vx
-              end
+              //{6'b10_1111, 3'b010}: begin    // vnmsac.vv
+              //end
+              //{6'b10_1111, 3'b110}: begin    // vnmsac.vx
+              //end
+              //{6'b10_1001, 3'b010}: begin    // vmadd.vv
+              //end
+              //{6'b10_1001, 3'b110}: begin    // vmadd.vx
+              //end
+              //{6'b10_1011, 3'b010}: begin    // vnmsub.vv
+              //end
+              //{6'b10_1011, 3'b110}: begin    // vnmsub.vx
+              //end
               // Comparisons
               {6'b01_1000, 3'b000}: begin // vmseq.vv
                 vrf_we_o = 1'b1;

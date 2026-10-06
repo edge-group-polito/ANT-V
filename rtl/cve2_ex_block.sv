@@ -147,9 +147,6 @@ module cve2_ex_block #(
           alu_operand_b = multdiv_result_q;
           use_mult_add = 1'b1;
         end
-        // TODO: this are not actually supported for now
-        // multid_operand_b= alu_operand_c_i worsen too much the critical path
-        // improve if possible
         //ALU_NMSAC: begin
         //  alu_operand_a = alu_operand_c_i;
         //  alu_operand_b = multdiv_result_q;
