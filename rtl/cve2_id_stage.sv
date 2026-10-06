@@ -272,6 +272,7 @@ module cve2_id_stage #(
   // Vslide internal signals
   logic [31:0] vslide_op_a;
   logic [31:0] vslided_op_a;
+  logic        vslide_op_a_ovf; // element offset does not fit in 32 bits once scaled to bytes
 
   // ALU Control
   alu_op_e     alu_operator;
@@ -426,12 +427,24 @@ module cve2_id_stage #(
   if (RV32VX) begin
     assign vrf_wdata_o = result_ex_i;
     assign vslide_op_a = (alu_op_a_mux_sel == OP_A_IMM) ? imm_a : rf_rdata_a_fwd;
-    assign vslided_op_a = vslide_op_a << vsew_i;
+    // RVV: OFFSET is an unsigned XLEN-bit value and is never truncated. Saturate
+    // the byte offset instead of letting the shift wrap, so a huge offset still
+    // compares >= vl in the VRF interface (empty slide) rather than aliasing to
+    // a small one.
+    always_comb begin
+      case (vsew_i)
+        VSEW_16: vslide_op_a_ovf = vslide_op_a[31];
+        VSEW_32: vslide_op_a_ovf = |vslide_op_a[31:30];
+        default: vslide_op_a_ovf = 1'b0;
+      endcase
+    end
+    assign vslided_op_a = vslide_op_a_ovf ? 32'hFFFF_FFFF : (vslide_op_a << vsew_i);
     // Conf VEC CSRs
     assign vcfg_write_o = vcfg_write & instr_executing;
   end else begin
     assign vrf_wdata_o = '0;
     assign vslide_op_a = '0;
+    assign vslide_op_a_ovf = 1'b0;
     assign vslided_op_a = '0;
     // Conf VEC CSRS
     assign vcfg_write_o = 1'b0;
