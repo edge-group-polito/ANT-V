@@ -1152,6 +1152,8 @@ module cve2_core import cve2_pkg::*; #(
         .slide_op_i(vrf_slide_op),
         .slide_offset_i(alu_operand_a_ex),
         .is_slide_up_i(is_slide_up),
+        // Instruction fetch busy: the slave shares the instruction port with fetch
+        .if_busy_i(if_busy),
         // LSU
         .lsu_req_o(vrf_lsu_req),
         .lsu_done_i(lsu_resp_valid),
