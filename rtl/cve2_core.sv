@@ -52,6 +52,7 @@ module cve2_core import cve2_pkg::*; #(
   output logic                         vrf_we_o,
   output logic [31:0]                  vrf_wdata_o,
   output logic [3:0]                   vrf_be_o,
+  output logic                         cluster_instr_req_sel_o,
   `endif
   // Data memory interface
   output logic                         data_req_o,
@@ -920,13 +921,14 @@ module cve2_core import cve2_pkg::*; #(
         .lsu_data_wdata_i('0),
         .lsu_data_rdata_o(if_instr_rdata),
         .lsu_data_err_o(if_instr_err),
-        .lsu_resp_valid_i(instr_valid_id), // TODO: is this ok?
+        .lsu_resp_valid_i(instr_valid_id),
         .lsu_busy_i(if_busy),
         // Control signals
-        .vector_op_i(use_double_if), // TODO: ad-hoc signal produced by the interface
+        .vector_op_i(use_double_if),
         .vector_mem_op_i(1'b0)
       );
       assign vrf_instr_data_err = 1'b0; // Not used
+      assign cluster_instr_req_sel_o = ~if_busy;//1'b0; // TODO: not used for now (to be connected for double if support)
     end else begin : gen_no_instr_arbiter
       // Connect instruction interface directly to IF stage
       assign instr_req_o = if_instr_req;
@@ -943,6 +945,7 @@ module cve2_core import cve2_pkg::*; #(
       assign vrf_we_o = 1'b0; // Instruction interface is read only
       assign vrf_be_o = 1'b0; // Instruction interface doesn't use byte enables
       assign vrf_wdata_o = 32'b0; // Instruction interface doesn't write data
+      assign cluster_instr_req_sel_o = 1'b0; // Not used, as instruction interface doesn't request data from cluster  
       `endif
       
     end

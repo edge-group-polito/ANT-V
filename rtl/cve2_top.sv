@@ -46,6 +46,7 @@ module cve2_top import cve2_pkg::*; #(
   output logic [31:0]                  instr_wdata_o,
   output logic [3:0]                   instr_be_o,
   output logic                         instr_we_o,
+  output logic                         cluster_instr_req_sel_o,
   `endif
   // Data memory interface
   output logic                         data_req_o,
@@ -192,7 +193,7 @@ module cve2_top import cve2_pkg::*; #(
     .RV32VX           (RV32VX),
     .VLEN             (VLEN),
     .VRF_START_ADDR   (VRF_START_ADDR),
-    .DoubleIf         (1'b1),//(`ifdef DOUBLE_W_IF 1'b1 `else 1'b0 `endif),
+    .DoubleIf         (`ifdef DOUBLE_W_IF 1'b1 `else 1'b0 `endif),
     .DbgTriggerEn     (DbgTriggerEn),
     .DbgHwBreakNum    (DbgHwBreakNum),
     .XInterface       (XInterface)
@@ -214,6 +215,7 @@ module cve2_top import cve2_pkg::*; #(
     .vrf_we_o (instr_we_o),
     .vrf_wdata_o (instr_wdata_o),
     .vrf_be_o (instr_be_o),
+    .cluster_instr_req_sel_o (cluster_instr_req_sel_o),
   `endif
     .data_req_o,
     .data_gnt_i,
