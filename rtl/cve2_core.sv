@@ -928,7 +928,9 @@ module cve2_core import cve2_pkg::*; #(
         .vector_mem_op_i(1'b0)
       );
       assign vrf_instr_data_err = 1'b0; // Not used
+      `ifdef DOUBLE_W_IF
       assign cluster_instr_req_sel_o = ~if_busy;//1'b0; // TODO: not used for now (to be connected for double if support)
+      `endif
     end else begin : gen_no_instr_arbiter
       // Connect instruction interface directly to IF stage
       assign instr_req_o = if_instr_req;

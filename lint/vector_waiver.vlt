@@ -24,6 +24,9 @@ lint_off -rule UNUSED -file "*/rtl/cve2_core.sv" -match "Signal is not used: 'vr
 lint_off -rule UNUSED -file "*/rtl/cve2_core.sv" -match "Signal is not used: 'is_slide_up'"
 lint_off -rule UNUSED -file "*/rtl/cve2_core.sv" -match "Signal is not used: 'vrf_*'"
 lint_off -rule UNUSED -file "*/rtl/cve2_core.sv" -match "Signal is not used: 'agu_*'"
+// Upper bits only driven by the double-interface VRF
+lint_off -rule UNUSED -file "*/rtl/cve2_core.sv" -match "Bits of signal are not used: 'agu_*"
+lint_off -rule UNUSED -file "*/rtl/cve2_core.sv" -match "Signal is not driven, nor used: 'use_double_if'"
 lint_off -rule UNUSED -file "*/rtl/cve2_core.sv" -match "Signal is not used: 'vx_instr'"
 lint_off -rule UNUSED -file "*/rtl/cve2_core.sv" -match "Signal is not used: 'vl_keep'"
 lint_off -rule UNUSED -file "*/rtl/cve2_core.sv" -match "Signal is not used: 'lsu_if_load_addr'"
