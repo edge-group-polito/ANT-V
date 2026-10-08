@@ -215,6 +215,12 @@ logic last_iteration_d, last_iteration_q;
 logic last_iteration_odd_d, last_iteration_odd_q;
 logic last_iteration_mst; // in odd iteration with double if need to arrive to 0 as the last iteration to do the last iteration correctly with if 0
 
+// Handle delay on gnt on last element of vload
+logic lsu_pending_q;  // an LSU request of the load is waiting for its response
+logic load_tail;      // every word is in, rd_q holds the last one: this is the final write
+logic load_tail_wr_q; // the write waiting in VRF_LOAD_WAITGNT is the final one
+assign load_tail = last_iteration_q && !lsu_pending_q;
+
 
 // Offset handling
 logic [1:0] offset_q, offset_d;
@@ -231,6 +237,8 @@ logic [1:0] curr_state_delay, next_state_delay;
 logic [1:0] wdata_mux;
 logic buffer_en, rd_buf_en;
 logic [PIPE_WIDTH-1:0] buffer_q, buffer_d;
+logic [3:0] data_be;     // byte enable of the current access
+logic [3:0] buffer_be_q; // byte enable of the delayed memory access, held with buffer_q
 
 // Slide instructions support
 logic [23:0] slide_buffer_d, slide_buffer_q;
@@ -527,10 +535,11 @@ always_comb begin
     //-----------
 
     VRF_LOAD: begin
-      if(lsu_done_i || last_iteration_q) begin
+      // Writing word i needs word i+1 in (lsu_done_i), except for the last word (load_tail)
+      if(lsu_done_i || load_tail) begin
         if (!first_iteration_q) begin
           if (data_gnt_i) begin
-            if (!last_iteration_q) begin
+            if (!load_tail) begin
               next_mst_state = VRF_LOAD_WRITE;
             end else begin
               next_mst_state = VRF_DONE_MST; // done one cycle after the last write
@@ -548,9 +557,8 @@ always_comb begin
 
     VRF_LOAD_WAITGNT: begin
       if (data_gnt_i) begin
-        // A delayed LAST write ends here as well: going through VRF_LOAD_WRITE
-        // and VRF_LOAD again would rewrite rd_q to the next (out of vl) word.
-        if (last_iteration_q) begin
+        // Not last_iteration_q: the last word may have just been sampled in rd_q and still needs its own write.
+        if (load_tail_wr_q) begin
           next_mst_state = VRF_DONE_MST;
         end else begin
           next_mst_state = VRF_LOAD_WRITE;
@@ -1174,7 +1182,7 @@ always_comb begin
 
   VRF_LOAD: begin
     if (lsu_done_i) rd_en_mst = 1'b1;
-    if (lsu_done_i || last_iteration_q) begin
+    if (lsu_done_i || load_tail) begin
       if (!first_iteration_q) begin
         data_we_o = 1'b1;
         data_req_o = 1'b1;
@@ -1196,6 +1204,8 @@ always_comb begin
     data_we_o = 1'b1;
     data_req_o = 1'b1;
     agu_get_rd_mst = 1'b1;
+    // Keep the delay FSM on buffer_q until the grant: rd_q may already hold the next word
+    write_delayed = ~data_gnt_i;
     if (data_gnt_i) begin
       agu_incr_mst[2] = 1'b1;
     end
@@ -2345,6 +2355,19 @@ always_ff @(posedge clk_i or negedge rst_ni) begin
   end
 end
 
+// Load: track the LSU request in flight and whether the delayed write is the last one
+always_ff @(posedge clk_i or negedge rst_ni) begin
+  if (!rst_ni) begin
+    lsu_pending_q  <= 1'b0;
+    load_tail_wr_q <= 1'b0;
+  end else begin
+    if (curr_mst_state == VRF_IDLE_MST) lsu_pending_q <= 1'b0;
+    else if (lsu_req_o)                 lsu_pending_q <= 1'b1;
+    else if (lsu_done_i)                lsu_pending_q <= 1'b0;
+    if (curr_mst_state == VRF_LOAD) load_tail_wr_q <= load_tail;
+  end
+end
+
 //----------
 // State FFs
 //----------
@@ -2433,17 +2456,19 @@ end
   always_comb begin
     if (sel_slide_be) begin
       if (last_iteration_q) begin
-        data_be_o = slide_offset_be & offset_be;
+        data_be = slide_offset_be & offset_be;
       end
-      else data_be_o = slide_offset_be;
+      else data_be = slide_offset_be;
     end
     else if (mst_tail_write && mst_owns_tail) begin
-      data_be_o = offset_be;
+      data_be = offset_be;
     end
     else begin
-      data_be_o = 4'b1111;
+      data_be = 4'b1111;
     end
   end
+  // While a load/store access waits for its grant the byte enable must not change
+  assign data_be_o = (memory_op_i && curr_state_delay != 2'b00) ? buffer_be_q : data_be;
 
   ////////////////////////////////
   // Slide instructions support //
@@ -2486,9 +2511,13 @@ end
     if (!rst_ni) begin
       curr_state_delay <= 2'b00;
       buffer_q <= '0;
+      buffer_be_q <= '0;
     end else begin
       curr_state_delay <= next_state_delay;
-      if (buffer_en) buffer_q <= buffer_d;
+      if (buffer_en) begin
+        buffer_q    <= buffer_d;
+        buffer_be_q <= data_be;
+      end
     end
   end
   always_comb begin
@@ -2516,10 +2545,10 @@ end
           next_state_delay = 2'b00;
         end
       end
-      // State with read delayed
+      // State with read delayed until the grant, however long it takes
       2'b10: begin
         rdata_mux = 1'b1;
-        if (read_delayed) begin
+        if (read_delayed || !lsu_gnt_i) begin
           next_state_delay = 2'b10;
         end else begin
           next_state_delay = 2'b00;
