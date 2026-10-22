@@ -126,7 +126,8 @@ typedef enum logic [5:0] {
   VRF_MC_FINISH_MST, // TODO: check for multicycle impl how to handle last it correctly (even and odd case)
   ERR_STATE,
   // Appended last so the existing encodings (ERR_STATE = 0x18) do not move
-  VRF_DONE_MST       // one cycle after the final VRF write: assert vector_done, then IDLE
+  VRF_DONE_MST,      // one cycle after the final VRF write: assert vector_done, then IDLE
+  VRF_STORE_LAST     // last pass of the store: no VRF read, LSU write of the last word
 } mst_state_t;
 
 typedef enum logic [4:0] {
@@ -579,27 +580,28 @@ always_comb begin
     // Store
     // -----
     VRF_STORE_READ: begin
-      // Proceed as soon as the value is sampled
-      if (data_rvalid_i)  begin
-        next_mst_state = VRF_STORE_WAITLSU;
-      // The store is pipelined: this state issues the LSU write for the word
-      // sampled on the PREVIOUS pass, which is why lsu_req_o is gated by
-      // !first_iteration_q. On a single-beat store last_iteration_q is already
-      // set while still in VRF_START_MST, so without the !first_iteration_q
-      // term this would exit before the write has been requested at all.
-      end else if (last_iteration_q && !first_iteration_q && lsu_gnt_i) begin
+      // Entered only on the grant of the read, so the value is on the bus now (OBI)
+      next_mst_state = VRF_STORE_WAITLSU;
+    end
+    // The store is pipelined: VRF_STORE_READ issues the LSU write for the word sampled
+    // on the PREVIOUS pass, so the last word is written here, where no read is issued.
+    // Keyed on the state and not on last_iteration_q: with a delayed read grant in
+    // VRF_STORE_WAITGNT, last_iteration_q is already set in the VRF_STORE_READ that
+    // samples the last word.
+    VRF_STORE_LAST: begin
+      if (lsu_gnt_i) begin
         next_mst_state = VRF_IDLE_MST;
       end else begin
-        next_mst_state = VRF_STORE_READ;
+        next_mst_state = VRF_STORE_LAST;
       end
     end
     VRF_STORE_WAITLSU: begin
       if (lsu_done_i || first_iteration_q) begin
         //if (last_iteration_q) begin
-        //  next_mst_state = VRF_IDLE_MST;  
-        //end else 
+        //  next_mst_state = VRF_IDLE_MST;
+        //end else
         if (num_iterations_q == (no_offset ? 1 : 0)) begin
-          next_mst_state = VRF_STORE_READ;
+          next_mst_state = VRF_STORE_LAST;
         end else begin
           if (data_gnt_i) begin
             next_mst_state = VRF_STORE_READ;
@@ -711,11 +713,8 @@ always_comb begin
     end
   
     VRF_MC_READ_FIRST: begin
-      if (data_rvalid_i) begin
-        next_mst_state = VRF_MC_WRITE_SINGLE;
-      end else begin
-        next_mst_state = VRF_MC_READ_FIRST;
-      end
+      // Entered only on the grant of VRF_MC_READ: the value is on the bus now (OBI)
+      next_mst_state = VRF_MC_WRITE_SINGLE;
     end
 
     VRF_MC_WRITE_SINGLE: begin
@@ -1223,19 +1222,25 @@ always_comb begin
     //end
   end
   VRF_STORE_READ: begin
-    if (data_rvalid_i) rs3_en_mst = 1'b1;
-    if (data_rvalid_i || last_iteration_q) begin
-      // Done only on the pass that actually raises lsu_req_o below: on the
-      // first pass the word has just been sampled and no write was requested.
-      vector_done_mst = last_iteration_q && !first_iteration_q && lsu_gnt_i;
-      if (!first_iteration_q) begin
-        lsu_req_o = 1'b1;
-        if (lsu_offset_q != 2'b00) begin
-          mux_sel = ~curr_demux_sel;
-        end
-        if (!lsu_gnt_i) read_delayed = 1'b1;
+    // Entered only on the grant of the read: sample the word on the bus
+    rs3_en_mst = 1'b1;
+    // LSU write of the word sampled on the previous pass
+    if (!first_iteration_q) begin
+      lsu_req_o = 1'b1;
+      if (lsu_offset_q != 2'b00) begin
+        mux_sel = ~curr_demux_sel;
       end
+      if (!lsu_gnt_i) read_delayed = 1'b1;
     end
+  end
+  VRF_STORE_LAST: begin
+    // LSU write of the last word, retire once the LSU grants it
+    vector_done_mst = lsu_gnt_i;
+    lsu_req_o = 1'b1;
+    if (lsu_offset_q != 2'b00) begin
+      mux_sel = ~curr_demux_sel;
+    end
+    if (!lsu_gnt_i) read_delayed = 1'b1;
   end
   VRF_STORE_WAITLSU: begin
     if (lsu_offset_q != 2'b00) begin
@@ -1321,8 +1326,9 @@ always_comb begin
 
 
   VRF_MC_IDLE_MST: begin
-    // Sample RS2, do not make any request to mem
-    if (data_rvalid_i && sel_operation_i[1]) begin
+    // Sample RS2, do not make any request to mem. Entered only on the grant of
+    // VRF_MC_READ2_MST: the value is on the bus now (OBI)
+    if (sel_operation_i[1]) begin
       rs2_en_mst = 1'b1;
     end
     if (!slv_sync_mst[0] && !first_iteration_q) begin
@@ -1424,10 +1430,8 @@ always_comb begin
   end
 
   VRF_MC_READ_FIRST: begin
-    if (data_rvalid_i) begin
-      rs2_en_mst = 1'b1;
-      next_mc_demux_sel = ~curr_mc_demux_sel;
-    end
+    rs2_en_mst = 1'b1;
+    next_mc_demux_sel = ~curr_mc_demux_sel;
   end
 
   VRF_MC_WRITE_SINGLE: begin
@@ -2252,8 +2256,10 @@ assign slv_active = (num_bytes_elements > 'd4);
 // last_iteration_q flag.
 assign mst_owns_tail = ~even_iteration | ~mst_start_slv_q;
 
-// last_iteration_q rises when the counter reaches T.
-assign mst_tail_write = (mult_ops_i && sel_operation_i[0] && sel_operation_i[2]) ? last_iteration_mst
+// last_iteration_q rises when the counter reaches T. Stores write their last word in
+// VRF_STORE_LAST: last_iteration_q can already be set in the VRF_STORE_READ before it.
+assign mst_tail_write = (memory_op_i && sel_operation_i[2])                      ? (curr_mst_state == VRF_STORE_LAST)
+                      : (mult_ops_i && sel_operation_i[0] && sel_operation_i[2]) ? last_iteration_mst
                                                                                  : last_iteration_q;
 
 // Parity of the beat count, which decides whether the last beat belongs to the

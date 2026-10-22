@@ -678,26 +678,19 @@ module cve2_vrf_interface #(
       end
 
       VRF_STORE_READ: begin
-        // as soon as we see the value on the bus we sample it and tell the lsu it can proceed
-        if (data_rvalid_i || last_iteration_q) begin
-          if (data_rvalid_i) rs3_en = 1;
-          if (!first_iteration_q) begin
-            lsu_req_o = 1;
-            // TODO: last iteration may break if we do not handle mux and demux carefully
-            if (lsu_offset_q != 2'b00) begin
-              mux_sel = ~curr_demux_sel; // TODO: check
-            end
-            if (!lsu_gnt_i) read_delayed = 1'b1;
+        // Entered on the grant of the read (VRF_START, VRF_STORE_WAITLSU, VRF_STORE_WAITGNT),
+        // so the value is on the bus now (OBI), or on the last pass with no read at all
+        // (last_iteration_q, set only on that path): no need to wait for rvalid
+        if (!last_iteration_q) rs3_en = 1;
+        if (!first_iteration_q) begin
+          lsu_req_o = 1;
+          // TODO: last iteration may break if we do not handle mux and demux carefully
+          if (lsu_offset_q != 2'b00) begin
+            mux_sel = ~curr_demux_sel; // TODO: check
           end
-          vrf_next_state = VRF_STORE_WAITLSU;
-        //end else if (!first_iteration_q && lsu_offset_i!= 2'b00) begin
-        //  // in case of misaligned access we need to wait for the LSU to finish
-        //    lsu_req_o = 1;
-        //    if (!lsu_gnt_i) read_delayed = 1'b1;
-        //    vrf_next_state = VRF_STORE_WAITLSU;
-        end else begin
-          vrf_next_state = VRF_STORE_READ;
+          if (!lsu_gnt_i) read_delayed = 1'b1;
         end
+        vrf_next_state = VRF_STORE_WAITLSU;
       end
 
       VRF_STORE_WAITLSU: begin
@@ -932,13 +925,10 @@ module cve2_vrf_interface #(
     end
 
     VRF_MC_READ_FIRST: begin
-      if (data_rvalid_i) begin
-        rs2_en = 1'b1;
-        next_mc_demux_sel = ~curr_mc_demux_sel;
-        vrf_next_state = VRF_MC_WRITE_SINGLE;
-      end else begin
-        vrf_next_state = VRF_MC_READ_FIRST;
-      end
+      // Entered only on the grant of VRF_MC_READ: the value is on the bus now (OBI)
+      rs2_en = 1'b1;
+      next_mc_demux_sel = ~curr_mc_demux_sel;
+      vrf_next_state = VRF_MC_WRITE_SINGLE;
     end
     // write result for vx and vi multicycle
     VRF_MC_WRITE_SINGLE: begin
