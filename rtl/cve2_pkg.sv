@@ -36,6 +36,15 @@ package cve2_pkg;
     VLMUL_8  = 3'b011
   } vlmul_e;
 
+  // Dot-product instructions (vdot4a*, xvdot4a*, xvdot2a*): vd[i] += sum of the lane products
+  // of vs2[i] and vs1[i]/x[rs1], with 32-bit accumulation (vtype SEW must be 32).
+  typedef struct packed {
+    logic       en;       // dot-product instruction
+    logic       w16;      // 0: 4 x 8-bit lanes, 1: 2 x 16-bit lanes
+    logic [1:0] sgn;      // signedness: [0] op_a (vs1/rs1), [1] op_b (vs2)
+    logic [3:0] lane_en;  // active lanes (tail field of the custom encoding), lane 0 = LSBs
+  } dotp_ctrl_t;
+
 
   ////////////////
   // IO Structs //

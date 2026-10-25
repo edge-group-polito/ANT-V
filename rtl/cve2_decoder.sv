@@ -101,6 +101,8 @@ module cve2_decoder #(
   output logic                  vrf_slide_op_o,
   output logic                  is_slide_up_o,
   output logic                  vmacc_vx_o,
+  // Dot-product instructions (lane_en is filled in by the core)
+  output cve2_pkg::dotp_ctrl_t  dotp_o,
   // Custom instruction
   output logic                  vx_instr_o,
   // immediate
@@ -285,6 +287,7 @@ module cve2_decoder #(
     vrf_slide_op_o        = 1'b0;
     is_slide_up_o         = 1'b0;
     vmacc_vx_o            = 1'b0;
+    dotp_o                = '0;
     vx_instr_o            = 1'b0;
     opcode                = opcode_e'(instr[6:0]);
 
@@ -984,6 +987,30 @@ module cve2_decoder #(
                 vrf_mult_ops_o = 1'b1;
                 vmacc_vx_o = 1'b1;
               end
+              // Dot products (Zvdot4a8i), SEW=32: same VRF access pattern as vmacc.
+              // funct6[2:1] = instr[28:27] selects the signedness:
+              //   00 u (vs2 u, vs1/rs1 u), 01 su (vs2 s), 10 ss (both s), 11 us (rs1 s)
+              // so sgn = {vs2 signed, vs1/rs1 signed} = {instr[28] ^ instr[27], instr[28]}
+              {6'b10_1000, 3'b010},          // vdot4au.vv
+              {6'b10_1010, 3'b010},          // vdot4asu.vv
+              {6'b10_1100, 3'b010}: begin    // vdot4a.vv
+                vrf_we_o = 1'b1;
+                vrf_sel_operation_o = 4'b1111;
+                vrf_mult_ops_o = 1'b1;
+                dotp_o.en  = 1'b1;
+                dotp_o.sgn = {instr[28] ^ instr[27], instr[28]};
+              end
+              {6'b10_1000, 3'b110},          // vdot4au.vx
+              {6'b10_1010, 3'b110},          // vdot4asu.vx
+              {6'b10_1100, 3'b110},          // vdot4a.vx
+              {6'b10_1110, 3'b110}: begin    // vdot4aus.vx
+                vrf_we_o = 1'b1;
+                vrf_sel_operation_o = 4'b1110;
+                vrf_mult_ops_o = 1'b1;
+                vmacc_vx_o = 1'b1;
+                dotp_o.en  = 1'b1;
+                dotp_o.sgn = {instr[28] ^ instr[27], instr[28]};
+              end
               //{6'b10_1111, 3'b010}: begin    // vnmsac.vv
               //end
               //{6'b10_1111, 3'b110}: begin    // vnmsac.vx
@@ -1401,6 +1428,39 @@ module cve2_decoder #(
               // matmul, i.e. B row 0) and the master wrote to the wrong word.
               vmacc_vx_o = 1'b1;
             end
+            // Dot products, SEW=32, same VRF access pattern as xvmacc. funct3 selects the
+            // lane width: OPMVV/OPMVX (010/110) 4 x 8-bit, OPFVV/OPFVF slots (001/101) 2 x 16-bit.
+            // funct6 selects the signedness as for vdot4a* (see OPCODE_OP_V).
+            // The tail field (index register [25:24]) is decoded by the core.
+            {6'b10_1000, 3'b010},          // xvdot4au.vv
+            {6'b10_1010, 3'b010},          // xvdot4asu.vv
+            {6'b10_1100, 3'b010},          // xvdot4a.vv
+            {6'b10_1000, 3'b001},          // xvdot2au.vv
+            {6'b10_1010, 3'b001},          // xvdot2asu.vv
+            {6'b10_1100, 3'b001}: begin    // xvdot2a.vv
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1111;
+              vrf_mult_ops_o = 1'b1;
+              dotp_o.en  = 1'b1;
+              dotp_o.w16 = ~instr[13];
+              dotp_o.sgn = {instr[28] ^ instr[27], instr[28]};
+            end
+            {6'b10_1000, 3'b110},          // xvdot4au.vx
+            {6'b10_1010, 3'b110},          // xvdot4asu.vx
+            {6'b10_1100, 3'b110},          // xvdot4a.vx
+            {6'b10_1110, 3'b110},          // xvdot4aus.vx
+            {6'b10_1000, 3'b101},          // xvdot2au.vx
+            {6'b10_1010, 3'b101},          // xvdot2asu.vx
+            {6'b10_1100, 3'b101},          // xvdot2a.vx
+            {6'b10_1110, 3'b101}: begin    // xvdot2aus.vx
+              vrf_we_o = 1'b1;
+              vrf_sel_operation_o = 4'b1110;
+              vrf_mult_ops_o = 1'b1;
+              vmacc_vx_o = 1'b1;            // accumulator addressing of the double interface
+              dotp_o.en  = 1'b1;
+              dotp_o.w16 = ~instr[13];
+              dotp_o.sgn = {instr[28] ^ instr[27], instr[28]};
+            end
             //{6'b10_1111, 3'b010}: begin    // xvnmsac.vv
             //end
             //{6'b10_1111, 3'b110}: begin    // xvnmsac.vx
@@ -1472,6 +1532,16 @@ module cve2_decoder #(
     // make sure illegal compressed instructions cause illegal instruction exceptions
     if (illegal_c_insn_i) begin
       illegal_insn = 1'b1;
+    end
+
+    // Dot products are only implemented by the single-cycle fracturable multiplier
+    if (dotp_o.en && RV32M != RV32MSingleCycle) begin
+      illegal_insn        = 1'b1;
+      dotp_o              = '0;
+      vrf_we_o            = 1'b0;
+      vrf_sel_operation_o = '0;
+      vrf_mult_ops_o      = 1'b0;
+      vmacc_vx_o          = 1'b0;
     end
 
     // make sure illegal instructions detected in the decoder do not propagate from decoder
@@ -2321,6 +2391,19 @@ module cve2_decoder #(
                 //alu_op_b_mux_sel_o = OP_B_VREG;
                 alu_operator_o = ALU_MAC;
               end
+              // Dot products: the ALU adds the registered dot product to vd, as for vmacc
+              {6'b10_1000, 3'b010},          // vdot4au.vv
+              {6'b10_1010, 3'b010},          // vdot4asu.vv
+              {6'b10_1100, 3'b010}: begin    // vdot4a.vv
+                alu_operator_o = ALU_MAC;
+              end
+              {6'b10_1000, 3'b110},          // vdot4au.vx
+              {6'b10_1010, 3'b110},          // vdot4asu.vx
+              {6'b10_1100, 3'b110},          // vdot4a.vx
+              {6'b10_1110, 3'b110}: begin    // vdot4aus.vx
+                alu_op_a_mux_sel_o = OP_A_REG_A;
+                alu_operator_o = ALU_MAC;
+              end
               //{6'b10_1111, 3'b010}: begin    // vnmsac.vv
               //end
               //{6'b10_1111, 3'b110}: begin    // vnmsac.vx
@@ -2593,6 +2676,26 @@ module cve2_decoder #(
               alu_operator_o = ALU_MAC;
             end
             {6'b10_1101, 3'b110}: begin    // xvmacc.vx
+              alu_op_a_mux_sel_o = OP_A_REG_A;
+              alu_operator_o = ALU_MAC;
+            end
+            // Dot products: the ALU adds the registered dot product to vd, as for xvmacc
+            {6'b10_1000, 3'b010},          // xvdot4au.vv
+            {6'b10_1010, 3'b010},          // xvdot4asu.vv
+            {6'b10_1100, 3'b010},          // xvdot4a.vv
+            {6'b10_1000, 3'b001},          // xvdot2au.vv
+            {6'b10_1010, 3'b001},          // xvdot2asu.vv
+            {6'b10_1100, 3'b001}: begin    // xvdot2a.vv
+              alu_operator_o = ALU_MAC;
+            end
+            {6'b10_1000, 3'b110},          // xvdot4au.vx
+            {6'b10_1010, 3'b110},          // xvdot4asu.vx
+            {6'b10_1100, 3'b110},          // xvdot4a.vx
+            {6'b10_1110, 3'b110},          // xvdot4aus.vx
+            {6'b10_1000, 3'b101},          // xvdot2au.vx
+            {6'b10_1010, 3'b101},          // xvdot2asu.vx
+            {6'b10_1100, 3'b101},          // xvdot2a.vx
+            {6'b10_1110, 3'b101}: begin    // xvdot2aus.vx
               alu_op_a_mux_sel_o = OP_A_REG_A;
               alu_operator_o = ALU_MAC;
             end

@@ -47,6 +47,7 @@ module cve2_ex_block #(
 
   // Vector extension
   input  logic                  vec_instr_i,
+  input  cve2_pkg::dotp_ctrl_t  dotp_i,                // dot-product controls
   input  logic                  vrf_if_stall_i,
   input  logic                  mem_op_i,
   input  logic [2:0]            vsew_i,
@@ -57,6 +58,7 @@ module cve2_ex_block #(
   import cve2_pkg::*;
 
   logic [31:0] alu_result, multdiv_result;
+  logic [31:0] dot_result;                             // sum of the lane products, from the multiplier
 
   logic [32:0] multdiv_alu_operand_b, multdiv_alu_operand_a;
   logic [33:0] alu_adder_result_ext;
@@ -110,19 +112,27 @@ module cve2_ex_block #(
   // to shorten critical path
   // TODO: can use a flag to enable or disable it
   logic [31:0] multdiv_result_q;
+  // Dot products use their own register, so that the multiplier result path (critical) gets no
+  // extra mux: dot_result comes from a separate adder on the lane products.
+  logic [31:0] dot_result_q;
 
   if (RV32VX) begin : gen_vec_mac_reg
     always_ff @(posedge clk_i or negedge rst_ni) begin
       if (!rst_ni) begin
         multdiv_result_q <= 32'b0;
+        dot_result_q     <= 32'b0;
       end else begin
         if (use_mult_add) begin
           multdiv_result_q <= multdiv_result;
+        end
+        if (use_mult_add && dotp_i.en) begin
+          dot_result_q <= dot_result;
         end
       end
     end
   end else begin : gen_no_vec_mac_reg
     assign multdiv_result_q = multdiv_result;
+    assign dot_result_q     = 32'b0;
   end
 
 
@@ -143,8 +153,9 @@ module cve2_ex_block #(
           alu_operand_b = '0;
         end
         ALU_MAC: begin
+          // vmacc: vd + product, dot products: vd + sum of the lane products
           alu_operand_a = alu_operand_c_i;
-          alu_operand_b = multdiv_result_q;
+          alu_operand_b = dotp_i.en ? dot_result_q : multdiv_result_q;
           use_mult_add = 1'b1;
         end
         //ALU_NMSAC: begin
@@ -230,6 +241,7 @@ module cve2_ex_block #(
       .multdiv_ready_id_i(1'b1),
       .multdiv_result_o  (multdiv_result)
     );
+    assign dot_result = 32'b0;
   end else if (RV32M == RV32MFast || RV32M == RV32MSingleCycle) begin : gen_multdiv_fast
     if (RV32VX) begin : gen_multdiv_fast_frac
       // TODO: for simplicity, use a different module directly, instead of unifying the two arch
@@ -257,6 +269,8 @@ module cve2_ex_block #(
         .valid_o           (multdiv_valid),
         .multdiv_result_o  (multdiv_result),
         .vec_instr_i       (vec_instr_i),
+        .dotp_i            (dotp_i),
+        .dot_result_o      (dot_result),
         .vrf_if_stall_i    (vrf_if_stall_i),
         .vsew_i            (vsew_i)
       );
@@ -285,10 +299,12 @@ module cve2_ex_block #(
         .valid_o           (multdiv_valid),
         .multdiv_result_o  (multdiv_result)
       );
+      assign dot_result = 32'b0;
     end
   end else begin : gen_no_multdiv
     // No RV32M extension
     assign multdiv_result        = 32'b0;
+    assign dot_result            = 32'b0;
     assign multdiv_alu_operand_a = '0;
     assign multdiv_alu_operand_b = '0;
     assign multdiv_valid         = '0;

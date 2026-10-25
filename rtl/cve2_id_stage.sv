@@ -144,6 +144,8 @@ module cve2_id_stage #(
   output logic                      is_slide_up_o,
   // vmacc_vx
   output logic                      vmacc_vx_o,
+  // Dot products
+  output cve2_pkg::dotp_ctrl_t      dotp_o,
   // Vector cfg
   output logic                      vcfg_write_o,
   output logic                      vl_max_o,
@@ -215,6 +217,8 @@ module cve2_id_stage #(
 
   // Decoder/Controller, ID stage internal signals
   logic        illegal_insn_dec;
+  cve2_pkg::dotp_ctrl_t dotp_dec;
+  logic        illegal_dotp_sew;
   logic        ebrk_insn;
   logic        mret_insn_dec;
   logic        dret_insn_dec;
@@ -369,7 +373,7 @@ module cve2_id_stage #(
     // Result Interface
     assign x_result_ready_o = 1'b1;
     if (RV32VX) begin
-      assign illegal_insn_o = instr_valid_i & ((illegal_csr_insn_i | (x_issue_valid_o & x_issue_ready_i & ~x_issue_resp_i.accept)) | (vrf_req_o && illegal_vec_csr_insn_i));
+      assign illegal_insn_o = instr_valid_i & ((illegal_csr_insn_i | (x_issue_valid_o & x_issue_ready_i & ~x_issue_resp_i.accept)) | (vrf_req_o && illegal_vec_csr_insn_i) | illegal_dotp_sew);
       assign multicycle_done = lsu_req_dec ? lsu_resp_valid_i : (illegal_insn_dec ? coproc_done : (vrf_req_o ? vector_done_i : ex_valid_i));
 
     end else begin
@@ -404,7 +408,7 @@ module cve2_id_stage #(
     assign unused_x_result_valid = x_result_valid_i;
     assign unused_x_result       = x_result_i;
     if (RV32VX) begin
-      assign illegal_insn_o = instr_valid_i & (illegal_csr_insn_i | illegal_insn_dec) | (vrf_req_o && illegal_vec_csr_insn_i);
+      assign illegal_insn_o = instr_valid_i & (illegal_csr_insn_i | illegal_insn_dec | illegal_dotp_sew) | (vrf_req_o && illegal_vec_csr_insn_i);
       assign multicycle_done = lsu_req_dec ? lsu_resp_valid_i : (vrf_req_o ? vector_done_i : ex_valid_i);
     end else begin
       assign illegal_insn_o = instr_valid_i & (illegal_csr_insn_i | illegal_insn_dec);  
@@ -712,6 +716,7 @@ module cve2_id_stage #(
     .vrf_slide_op_o(vrf_slide_op),
     .is_slide_up_o(is_slide_up),
     .vmacc_vx_o(vmacc_vx_o),
+    .dotp_o(dotp_dec),
     .vx_instr_o(vx_instr_o),
     // vector immediates
     .imm_v_type_o(imm_v_type),
@@ -730,13 +735,19 @@ module cve2_id_stage #(
   );
 
   if (RV32VX) begin
-    assign vrf_req_o = vrf_req & instr_executing;
+    // Dot products are defined for SEW=32 only (Zvdot4a8i): any other SEW is illegal, and the
+    // request is not forwarded to the VRF
+    assign illegal_dotp_sew = dotp_dec.en && (vsew_i != VSEW_32);
+    assign dotp_o    = dotp_dec;
+    assign vrf_req_o = vrf_req & instr_executing & ~illegal_dotp_sew;
     assign vrf_slide_op_o = vrf_slide_op & instr_executing;
     assign is_slide_up_o = is_slide_up & instr_executing;
     assign unit_stride_o = unit_stride & instr_executing;
     assign vl_keep_o = vl_keep & instr_executing;
     assign vmem_ops_eew_o = vmem_ops_eew & {3{instr_executing}};
   end else begin
+    assign illegal_dotp_sew = 1'b0;
+    assign dotp_o    = '0;
     assign vrf_req_o = 1'b0;
     assign vrf_slide_op_o = 1'b0;
     assign is_slide_up_o = 1'b0;

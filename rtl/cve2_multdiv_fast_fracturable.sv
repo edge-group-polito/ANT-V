@@ -47,6 +47,8 @@ module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
   output logic             valid_o,
 
   input  logic             vec_instr_i,
+  input  cve2_pkg::dotp_ctrl_t dotp_i,       // dot-product controls
+  output logic [31:0]      dot_result_o,     // sum of the active lane products (dot products)
   input  logic             vrf_if_stall_i,
   input  logic [2:0]       vsew_i
 );
@@ -165,45 +167,57 @@ module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
     logic [33:0]        summand1, summand2, summand3;     // partial result to be summed up
     // additional signal to make it fracturable
     logic [15:0]        mult3_op_a_sca, mult3_op_b_sca;   // scalar operands of mult3, depend on MULL/MULH
-    logic [7:0]         mult4_res;
+    logic signed [17:0] mult4_res;                        // 9x9: full product for dot products
     logic               mult3_sign_a_sca, mult3_sign_b_sca;
     logic [31:0]        mult_res_vec;
     logic [33:0]        mac_res_d_sca;
 
+    // LANE SPLIT
+    // Operands are split in 4 x 8-bit lanes for SEW=8 and 4-way dot products, in 2 x 16-bit lanes
+    // for SEW=16 and 2-way dot products. Dot products run at SEW=32, so the two never overlap.
+    // ext_*: the lanes are sign extended. Always for vmul (its result bits do not depend on the
+    // extension), per operand for dot products (u/su/us/ss variants).
+    logic lanes8, lanes16;
+    logic ext_a, ext_b;
+    assign lanes8  = (vec_instr_i && vsew_i == VSEW_8)  || (dotp_i.en && !dotp_i.w16);
+    assign lanes16 = (vec_instr_i && vsew_i == VSEW_16) || (dotp_i.en &&  dotp_i.w16);
+    assign ext_a   = !dotp_i.en || dotp_i.sgn[0];
+    assign ext_b   = !dotp_i.en || dotp_i.sgn[1];
+
     // INPUT MULTIPLEXER
     // Single level of muxing, instead of precomputing the vector and scalar operands and then
-    // selecting between them, to shorten the critical path.
+    // selecting between them, to shorten the critical path. ext_* come from flops.
     always_comb begin
       mult3_op_a   = mult3_op_a_sca;
       mult3_op_b   = mult3_op_b_sca;
       mult3_sign_a = mult3_sign_a_sca;
       mult3_sign_b = mult3_sign_b_sca;
-      if (vec_instr_i && vsew_i == VSEW_8) begin
-        // operands are sign extended to 16 bits
-        mult1_op_a = {{8{op_a_i[7]}}, op_a_i[`OP_LL]};
-        mult1_op_b = {{8{op_b_i[7]}}, op_b_i[`OP_LL]};
-        mult2_op_a = {{8{op_a_i[15]}}, op_a_i[`OP_LH]};
-        mult2_op_b = {{8{op_b_i[15]}}, op_b_i[`OP_LH]};
-        mult3_op_a = {{8{op_a_i[23]}}, op_a_i[`OP_HL]};
-        mult3_op_b = {{8{op_b_i[23]}}, op_b_i[`OP_HL]};
+      if (lanes8) begin
+        // operands are sign (or zero) extended to 16 bits
+        mult1_op_a = {{8{ext_a & op_a_i[7]}}, op_a_i[`OP_LL]};
+        mult1_op_b = {{8{ext_b & op_b_i[7]}}, op_b_i[`OP_LL]};
+        mult2_op_a = {{8{ext_a & op_a_i[15]}}, op_a_i[`OP_LH]};
+        mult2_op_b = {{8{ext_b & op_b_i[15]}}, op_b_i[`OP_LH]};
+        mult3_op_a = {{8{ext_a & op_a_i[23]}}, op_a_i[`OP_HL]};
+        mult3_op_b = {{8{ext_b & op_b_i[23]}}, op_b_i[`OP_HL]};
         // the sign bits are the sign bits of the operands
-        mult1_sign_a = op_a_i[7];
-        mult1_sign_b = op_b_i[7];
-        mult2_sign_a = op_a_i[15];
-        mult2_sign_b = op_b_i[15];
-        mult3_sign_a = op_a_i[23];
-        mult3_sign_b = op_b_i[23];
-      end else if (vec_instr_i && vsew_i == VSEW_16) begin
+        mult1_sign_a = ext_a & op_a_i[7];
+        mult1_sign_b = ext_b & op_b_i[7];
+        mult2_sign_a = ext_a & op_a_i[15];
+        mult2_sign_b = ext_b & op_b_i[15];
+        mult3_sign_a = ext_a & op_a_i[23];
+        mult3_sign_b = ext_b & op_b_i[23];
+      end else if (lanes16) begin
         // only two multipliers are needed, mult3 keeps the scalar operands (result unused)
         mult1_op_a = op_a_i[`OP_L];
         mult1_op_b = op_b_i[`OP_L];
         mult2_op_a = op_a_i[`OP_H];
         mult2_op_b = op_b_i[`OP_H];
         // the sign is the same as the operands
-        mult1_sign_a = op_a_i[15];
-        mult1_sign_b = op_b_i[15];
-        mult2_sign_a = op_a_i[31];
-        mult2_sign_b = op_b_i[31];
+        mult1_sign_a = ext_a & op_a_i[15];
+        mult1_sign_b = ext_b & op_b_i[15];
+        mult2_sign_a = ext_a & op_a_i[31];
+        mult2_sign_b = ext_b & op_b_i[31];
       end else begin
         // VSEW 32 or scalar
         // al*bl
@@ -224,8 +238,9 @@ module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
     assign mult1_res = $signed({mult1_sign_a, mult1_op_a}) * $signed({mult1_sign_b, mult1_op_b});
     assign mult2_res = $signed({mult2_sign_a, mult2_op_a}) * $signed({mult2_sign_b, mult2_op_b});
     assign mult3_res = $signed({mult3_sign_a, mult3_op_a}) * $signed({mult3_sign_b, mult3_op_b});
-    // additional 8-bit multiplier
-    assign mult4_res = $signed(op_a_i[`OP_HH]) * $signed(op_b_i[`OP_HH]);
+    // additional 9-bit multiplier (fourth 8-bit lane), full product for dot products
+    assign mult4_res = $signed({ext_a & op_a_i[31], op_a_i[`OP_HH]}) *
+                       $signed({ext_b & op_b_i[31], op_b_i[`OP_HH]});
 
     // Final adder for 32-bit multiplication
     assign mac_res_signed = $signed(summand1) + $signed(summand2) + $signed(summand3);
@@ -242,7 +257,7 @@ module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
       mult_res_vec = '0;
       case (vsew_i)
         VSEW_8: begin
-          mult_res_vec = {mult4_res, mult3_res[7:0], mult2_res[7:0], mult1_res[7:0]};
+          mult_res_vec = {mult4_res[7:0], mult3_res[7:0], mult2_res[7:0], mult1_res[7:0]};
         end
         VSEW_16: begin
           mult_res_vec = {mult2_res[15:0], mult1_res[15:0]};
@@ -275,10 +290,25 @@ module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
 
     assign multdiv_result_o =
         ({32{res_sel_div }} & imd_val_q_i[0][31:0])                                           |
-        ({32{res_sel_v8  }} & {mult4_res, mult3_res[7:0], mult2_res[7:0], mult1_res[7:0]})     |
+        ({32{res_sel_v8  }} & {mult4_res[7:0], mult3_res[7:0], mult2_res[7:0], mult1_res[7:0]})|
         ({32{res_sel_v16 }} & {mult2_res[15:0], mult1_res[15:0]})                             |
         ({32{res_sel_mull}} & {mac_res[`OP_L], mult1_res_uns[`OP_L]})                         |
         ({32{res_sel_full}} & mac_res[31:0]);
+
+    // DOT PRODUCT
+    // Separate adder on the lane products (exact, operands extended to 17/9 bits), sum mod 2^32,
+    // registered in the EX block. Inactive lanes (tail field, mult3/mult4 with 16-bit lanes) and
+    // non-dot operations are gated.
+    logic [3:0]  dot_lane_on;
+    logic [31:0] dot_p1, dot_p2, dot_p3, dot_p4;
+
+    assign dot_lane_on  = {4{dotp_i.en}} &
+                          (dotp_i.w16 ? {2'b00, dotp_i.lane_en[1:0]} : dotp_i.lane_en);
+    assign dot_p1       = {32{dot_lane_on[0]}} & mult1_res[31:0];
+    assign dot_p2       = {32{dot_lane_on[1]}} & mult2_res[31:0];
+    assign dot_p3       = {32{dot_lane_on[2]}} & mult3_res[31:0];
+    assign dot_p4       = {32{dot_lane_on[3]}} & {{14{mult4_res[17]}}, mult4_res};
+    assign dot_result_o = dot_p1 + dot_p2 + dot_p3 + dot_p4;
 
     // The first two multipliers are only used in state 1 (MULL), their scalar operands are
     // assigned statically in the input multiplexer above.
@@ -380,6 +410,8 @@ module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
     assign mac_res        = mac_res_ext[33:0];
 
     assign multdiv_result_o = div_sel_i ? imd_val_q_i[0][31:0] : mac_res_d[31:0];
+    // No dot products with the multi-cycle multiplier (illegal in the decoder)
+    assign dot_result_o     = '0;
 
     always_comb begin
       mult_op_a    = op_a_i[`OP_L];
