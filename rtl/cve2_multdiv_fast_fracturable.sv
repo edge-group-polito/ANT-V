@@ -136,7 +136,7 @@ module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
   assign unused_mac_res_ext = mac_res_ext[34];
 
   assign signed_mult      = (signed_mode_i != 2'b00);
-  assign multdiv_result_o = div_sel_i ? imd_val_q_i[0][31:0] : mac_res_d[31:0];
+  // multdiv_result_o is assigned in each multiplier variant below
 
   /////////////////////////////////////////
   // Fracturable Single Cycle Multiplier //
@@ -256,6 +256,30 @@ module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
     end
     assign mac_res_d = (vec_instr_i && vsew_i!=VSEW_32) ? {2'b00, mult_res_vec} : mac_res_d_sca;
 
+    // RESULT MULTIPLEXER
+    // Same function as div_sel_i ? imd_val_q_i[0] : mac_res_d, which chains three muxes
+    // (mac_res_d_sca, vector/scalar, div) after the final adder.
+    // mac_res_d is still used for the intermediate value register.
+    logic        res_sel_vec, res_sel_sca;
+    logic        res_sel_div, res_sel_v8, res_sel_v16, res_sel_mull, res_sel_full;
+    logic        sca_full;  // mac_res_d_sca selects the unshifted mac_res (see the FSM below)
+
+    assign sca_full     = (mult_state_q == MULH) || (operator_i != MD_OP_MULL && !vrf_if_stall_i);
+    assign res_sel_vec  = vec_instr_i && vsew_i != VSEW_32;
+    assign res_sel_sca  = !div_sel_i && !res_sel_vec;
+    assign res_sel_div  = div_sel_i;
+    assign res_sel_v8   = !div_sel_i && res_sel_vec && vsew_i == VSEW_8;
+    assign res_sel_v16  = !div_sel_i && res_sel_vec && vsew_i == VSEW_16;
+    assign res_sel_mull = res_sel_sca && !sca_full;
+    assign res_sel_full = res_sel_sca && sca_full;
+
+    assign multdiv_result_o =
+        ({32{res_sel_div }} & imd_val_q_i[0][31:0])                                           |
+        ({32{res_sel_v8  }} & {mult4_res, mult3_res[7:0], mult2_res[7:0], mult1_res[7:0]})     |
+        ({32{res_sel_v16 }} & {mult2_res[15:0], mult1_res[15:0]})                             |
+        ({32{res_sel_mull}} & {mac_res[`OP_L], mult1_res_uns[`OP_L]})                         |
+        ({32{res_sel_full}} & mac_res[31:0]);
+
     // The first two multipliers are only used in state 1 (MULL), their scalar operands are
     // assigned statically in the input multiplexer above.
 
@@ -354,6 +378,8 @@ module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
         $signed({sign_a, mult_op_a}) * $signed({sign_b, mult_op_b}) + $signed(accum);
     assign mac_res_ext    = $unsigned(mac_res_signed);
     assign mac_res        = mac_res_ext[33:0];
+
+    assign multdiv_result_o = div_sel_i ? imd_val_q_i[0][31:0] : mac_res_d[31:0];
 
     always_comb begin
       mult_op_a    = op_a_i[`OP_L];
