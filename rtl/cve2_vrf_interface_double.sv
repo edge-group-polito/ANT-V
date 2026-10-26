@@ -127,7 +127,8 @@ typedef enum logic [5:0] {
   ERR_STATE,
   // Appended last so the existing encodings (ERR_STATE = 0x18) do not move
   VRF_DONE_MST,      // one cycle after the final VRF write: assert vector_done, then IDLE
-  VRF_STORE_LAST     // last pass of the store: no VRF read, LSU write of the last word
+  VRF_STORE_LAST,    // last pass of the store: no VRF read, LSU write of the last word
+  VRF_STORE_DRAIN    // misaligned store: wait for the second LSU access of the last word
 } mst_state_t;
 
 typedef enum logic [4:0] {
@@ -600,9 +601,18 @@ always_comb begin
     // samples the last word.
     VRF_STORE_LAST: begin
       if (lsu_gnt_i) begin
-        next_mst_state = VRF_IDLE_MST;
+        // Misaligned base: the LSU splits the word in two accesses and computes the second
+        // address with the ID-stage ALU, so the instruction must not retire before it is done
+        next_mst_state = (lsu_offset_q != 2'b00) ? VRF_STORE_DRAIN : VRF_IDLE_MST;
       end else begin
         next_mst_state = VRF_STORE_LAST;
+      end
+    end
+    VRF_STORE_DRAIN: begin
+      if (lsu_done_i) begin
+        next_mst_state = VRF_IDLE_MST;
+      end else begin
+        next_mst_state = VRF_STORE_DRAIN;
       end
     end
     VRF_STORE_WAITLSU: begin
@@ -1244,13 +1254,19 @@ always_comb begin
     end
   end
   VRF_STORE_LAST: begin
-    // LSU write of the last word, retire once the LSU grants it
-    vector_done_mst = lsu_gnt_i;
+    // LSU write of the last word, retire once the LSU grants it (aligned base only, see
+    // VRF_STORE_DRAIN)
+    vector_done_mst = lsu_gnt_i && (lsu_offset_q == 2'b00);
     lsu_req_o = 1'b1;
     if (lsu_offset_q != 2'b00) begin
       mux_sel = ~curr_demux_sel;
     end
     if (!lsu_gnt_i) read_delayed = 1'b1;
+  end
+  VRF_STORE_DRAIN: begin
+    // Misaligned base: the LSU is doing the second access of the last word
+    vector_done_mst = lsu_done_i;
+    mux_sel = ~curr_demux_sel;
   end
   VRF_STORE_WAITLSU: begin
     if (lsu_offset_q != 2'b00) begin
@@ -1267,7 +1283,9 @@ always_comb begin
       //end else
       if (num_iterations_q == (no_offset ? 1 : 0)) begin
         //last_iteration_d = 1'b1;
-        if (lsu_offset_q != 2'b00 && lsu_done_i) begin
+        // Misaligned: VRF_STORE_LAST reads the word through mux_sel = ~curr_demux_sel, so the
+        // demux must flip here also for a single-word store
+        if (lsu_offset_q != 2'b00 && (lsu_done_i || first_iteration_q)) begin
           next_demux_sel = ~curr_demux_sel;
         end
       // Send read request to memory
@@ -2268,7 +2286,9 @@ assign mst_owns_tail = ~even_iteration | ~mst_start_slv_q;
 
 // last_iteration_q rises when the counter reaches T. Stores write their last word in
 // VRF_STORE_LAST: last_iteration_q can already be set in the VRF_STORE_READ before it.
-assign mst_tail_write = (memory_op_q && sel_operation_q[2])                      ? (curr_mst_state == VRF_STORE_LAST)
+// VRF_STORE_DRAIN: second LSU access of a misaligned last word, same byte enables.
+assign mst_tail_write = (memory_op_q && sel_operation_q[2])                      ? (curr_mst_state == VRF_STORE_LAST ||
+                                                                                    curr_mst_state == VRF_STORE_DRAIN)
                       : (mult_ops_q && sel_operation_q[0] && sel_operation_q[2]) ? last_iteration_mst
                                                                                  : last_iteration_q;
 
