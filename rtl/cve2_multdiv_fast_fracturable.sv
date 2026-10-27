@@ -20,7 +20,8 @@
 `include "prim_assert.sv"
 
 module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
-  parameter cve2_pkg::rv32m_e RV32M = cve2_pkg::RV32MSingleCycle //for now only this mode is supported
+  parameter cve2_pkg::rv32m_e RV32M = cve2_pkg::RV32MSingleCycle, //for now only this mode is supported
+  parameter bit RV32VXDotp = 1'b1   // dot products (single-cycle mode only)
   ) (
   input  logic             clk_i,
   input  logic             rst_ni,
@@ -177,12 +178,16 @@ module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
     // for SEW=16 and 2-way dot products. Dot products run at SEW=32, so the two never overlap.
     // ext_*: the lanes are sign extended. Always for vmul (its result bits do not depend on the
     // extension), per operand for dot products (u/su/us/ss variants).
+    // dot_en: constant 0 without dot products, so the lane split and the extension gating reduce
+    // to the vmul ones.
     logic lanes8, lanes16;
     logic ext_a, ext_b;
-    assign lanes8  = (vec_instr_i && vsew_i == VSEW_8)  || (dotp_i.en && !dotp_i.w16);
-    assign lanes16 = (vec_instr_i && vsew_i == VSEW_16) || (dotp_i.en &&  dotp_i.w16);
-    assign ext_a   = !dotp_i.en || dotp_i.sgn[0];
-    assign ext_b   = !dotp_i.en || dotp_i.sgn[1];
+    logic dot_en;
+    assign dot_en  = RV32VXDotp && dotp_i.en;
+    assign lanes8  = (vec_instr_i && vsew_i == VSEW_8)  || (dot_en && !dotp_i.w16);
+    assign lanes16 = (vec_instr_i && vsew_i == VSEW_16) || (dot_en &&  dotp_i.w16);
+    assign ext_a   = !dot_en || dotp_i.sgn[0];
+    assign ext_b   = !dot_en || dotp_i.sgn[1];
 
     // INPUT MULTIPLEXER
     // Single level of muxing, instead of precomputing the vector and scalar operands and then
@@ -238,9 +243,16 @@ module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
     assign mult1_res = $signed({mult1_sign_a, mult1_op_a}) * $signed({mult1_sign_b, mult1_op_b});
     assign mult2_res = $signed({mult2_sign_a, mult2_op_a}) * $signed({mult2_sign_b, mult2_op_b});
     assign mult3_res = $signed({mult3_sign_a, mult3_op_a}) * $signed({mult3_sign_b, mult3_op_b});
-    // additional 9-bit multiplier (fourth 8-bit lane), full product for dot products
-    assign mult4_res = $signed({ext_a & op_a_i[31], op_a_i[`OP_HH]}) *
-                       $signed({ext_b & op_b_i[31], op_b_i[`OP_HH]});
+    if (RV32VXDotp) begin : gen_mult4_dotp
+      // additional 9-bit multiplier (fourth 8-bit lane), full product for dot products
+      assign mult4_res = $signed({ext_a & op_a_i[31], op_a_i[`OP_HH]}) *
+                         $signed({ext_b & op_b_i[31], op_b_i[`OP_HH]});
+    end else begin : gen_mult4_vmul
+      // additional 8-bit multiplier, vmul only needs the 8 LSBs of the product
+      logic [7:0] mult4_res_lsb;
+      assign mult4_res_lsb = op_a_i[`OP_HH] * op_b_i[`OP_HH];
+      assign mult4_res     = {10'b0, mult4_res_lsb};
+    end
 
     // Final adder for 32-bit multiplication
     assign mac_res_signed = $signed(summand1) + $signed(summand2) + $signed(summand3);
@@ -299,16 +311,23 @@ module cve2_multdiv_fast_fracturable import cve2_pkg::*; #(
     // Separate adder on the lane products (exact, operands extended to 17/9 bits), sum mod 2^32,
     // registered in the EX block. Inactive lanes (tail field, mult3/mult4 with 16-bit lanes) and
     // non-dot operations are gated.
-    logic [3:0]  dot_lane_on;
-    logic [31:0] dot_p1, dot_p2, dot_p3, dot_p4;
+    if (RV32VXDotp) begin : gen_dot_adder
+      logic [3:0]  dot_lane_on;
+      logic [31:0] dot_p1, dot_p2, dot_p3, dot_p4;
 
-    assign dot_lane_on  = {4{dotp_i.en}} &
-                          (dotp_i.w16 ? {2'b00, dotp_i.lane_en[1:0]} : dotp_i.lane_en);
-    assign dot_p1       = {32{dot_lane_on[0]}} & mult1_res[31:0];
-    assign dot_p2       = {32{dot_lane_on[1]}} & mult2_res[31:0];
-    assign dot_p3       = {32{dot_lane_on[2]}} & mult3_res[31:0];
-    assign dot_p4       = {32{dot_lane_on[3]}} & {{14{mult4_res[17]}}, mult4_res};
-    assign dot_result_o = dot_p1 + dot_p2 + dot_p3 + dot_p4;
+      assign dot_lane_on  = {4{dotp_i.en}} &
+                            (dotp_i.w16 ? {2'b00, dotp_i.lane_en[1:0]} : dotp_i.lane_en);
+      assign dot_p1       = {32{dot_lane_on[0]}} & mult1_res[31:0];
+      assign dot_p2       = {32{dot_lane_on[1]}} & mult2_res[31:0];
+      assign dot_p3       = {32{dot_lane_on[2]}} & mult3_res[31:0];
+      assign dot_p4       = {32{dot_lane_on[3]}} & {{14{mult4_res[17]}}, mult4_res};
+      assign dot_result_o = dot_p1 + dot_p2 + dot_p3 + dot_p4;
+    end else begin : gen_no_dot_adder
+      // No dot products (illegal in the decoder)
+      logic unused_dotp;
+      assign unused_dotp  = ^{dotp_i, mult4_res[17:8]};
+      assign dot_result_o = '0;
+    end
 
     // The first two multipliers are only used in state 1 (MULL), their scalar operands are
     // assigned statically in the input multiplexer above.

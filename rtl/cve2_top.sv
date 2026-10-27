@@ -191,6 +191,7 @@ module cve2_top import cve2_pkg::*; #(
     .RV32M            (RV32M),
     .RV32B            (RV32B),
     .RV32VX           (RV32VX),
+    .RV32VXDotp       (`ifdef NO_DOTP 1'b0 `else 1'b1 `endif),
     .VLEN             (VLEN),
     .VRF_START_ADDR   (VRF_START_ADDR),
     .DoubleIf         (`ifdef DOUBLE_W_IF 1'b1 `else 1'b0 `endif),

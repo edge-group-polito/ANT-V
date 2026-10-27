@@ -23,6 +23,7 @@ module cve2_id_stage #(
   parameter cve2_pkg::rv32m_e RV32M           = cve2_pkg::RV32MFast,
   parameter cve2_pkg::rv32b_e RV32B           = cve2_pkg::RV32BNone,
   parameter bit               RV32VX          = 1'b0,
+  parameter bit               RV32VXDotp      = 1'b1,
   parameter bit               XInterface      = 1'b0
 ) (
   input  logic                      clk_i,
@@ -636,6 +637,7 @@ module cve2_id_stage #(
     .RV32M          (RV32M),
     .RV32B          (RV32B),
     .RV32VX         (RV32VX),
+    .RV32VXDotp     (RV32VXDotp),
     .XInterface     (XInterface)
   ) decoder_i (
     .clk_i (clk_i),
@@ -735,10 +737,18 @@ module cve2_id_stage #(
   );
 
   if (RV32VX) begin
-    // Dot products are defined for SEW=32 only (Zvdot4a8i): any other SEW is illegal, and the
-    // request is not forwarded to the VRF
-    assign illegal_dotp_sew = dotp_dec.en && (vsew_i != VSEW_32);
-    assign dotp_o    = dotp_dec;
+    if (RV32VXDotp) begin : gen_dotp
+      // Dot products are defined for SEW=32 only (Zvdot4a8i): any other SEW is illegal, and the
+      // request is not forwarded to the VRF
+      assign illegal_dotp_sew = dotp_dec.en && (vsew_i != VSEW_32);
+      assign dotp_o           = dotp_dec;
+    end else begin : gen_no_dotp
+      // Dot products are illegal in the decoder
+      logic unused_dotp_dec;
+      assign unused_dotp_dec  = ^dotp_dec;
+      assign illegal_dotp_sew = 1'b0;
+      assign dotp_o           = '0;
+    end
     assign vrf_req_o = vrf_req & instr_executing & ~illegal_dotp_sew;
     assign vrf_slide_op_o = vrf_slide_op & instr_executing;
     assign is_slide_up_o = is_slide_up & instr_executing;

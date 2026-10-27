@@ -23,6 +23,7 @@ module cve2_core import cve2_pkg::*; #(
   parameter rv32m_e      RV32M             = RV32MFast,
   parameter rv32b_e      RV32B             = RV32BNone,
   parameter bit          RV32VX            = 1'b0,
+  parameter bit          RV32VXDotp        = 1'b1, // dot-product instructions, only with RV32VX
   parameter int unsigned VLEN              = 128,
   parameter int unsigned VRF_START_ADDR    = 32'h00010000,
   parameter bit          DbgTriggerEn      = 1'b0,
@@ -505,6 +506,7 @@ module cve2_core import cve2_pkg::*; #(
     .RV32M          (RV32M),
     .RV32B          (RV32B),
     .RV32VX         (RV32VX),
+    .RV32VXDotp     (RV32VXDotp),
     .XInterface     (XInterface)
   ) id_stage_i (
     .clk_i (clk_i),
@@ -695,6 +697,7 @@ module cve2_core import cve2_pkg::*; #(
   cve2_ex_block #(
     .RV32M          (RV32M),
     .RV32VX         (RV32VX),
+    .RV32VXDotp     (RV32VXDotp),
     .RV32B          (RV32B)
   ) ex_block_i (
     .clk_i (clk_i),
@@ -1279,34 +1282,40 @@ module cve2_core import cve2_pkg::*; #(
     assign vrf_raddr_b  = (vx_instr) ? rf_rdata_b[12:8]  : rf_raddr_b;
     assign vrf_waddr_wb = (vx_instr) ? rf_rdata_b[4:0]   : rf_waddr_wb;
 
-    // Dot-product controls, sampled together with the VRF indices at the start of the vector op
-    // Tail field of the custom encoding, index register [25:24]: number of active lanes in each
-    // element, 0 = all.
-    logic [1:0] dotp_tail;
-    logic [3:0] dotp_lane_en;
-    assign dotp_tail = vx_instr ? rf_rdata_b[25:24] : 2'b00;
-    always_comb begin
-      if (dotp_id.w16) begin
-        dotp_lane_en = dotp_tail[0] ? 4'b0001 : 4'b0011;
-      end else begin
-        unique case (dotp_tail)
-          2'd1:    dotp_lane_en = 4'b0001;
-          2'd2:    dotp_lane_en = 4'b0011;
-          2'd3:    dotp_lane_en = 4'b0111;
-          default: dotp_lane_en = 4'b1111;
-        endcase
+    if (RV32VXDotp) begin : gen_dotp_ctrl
+      // Dot-product controls, sampled together with the VRF indices at the start of the vector op
+      // Tail field of the custom encoding, index register [25:24]: number of active lanes in each
+      // element, 0 = all.
+      logic [1:0] dotp_tail;
+      logic [3:0] dotp_lane_en;
+      assign dotp_tail = vx_instr ? rf_rdata_b[25:24] : 2'b00;
+      always_comb begin
+        if (dotp_id.w16) begin
+          dotp_lane_en = dotp_tail[0] ? 4'b0001 : 4'b0011;
+        end else begin
+          unique case (dotp_tail)
+            2'd1:    dotp_lane_en = 4'b0001;
+            2'd2:    dotp_lane_en = 4'b0011;
+            2'd3:    dotp_lane_en = 4'b0111;
+            default: dotp_lane_en = 4'b1111;
+          endcase
+        end
       end
-    end
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-      if (!rst_ni) begin
-        dotp_q <= '0;
-      end else if (agu_load) begin
-        dotp_q <= '{en: dotp_id.en, w16: dotp_id.w16, sgn: dotp_id.sgn, lane_en: dotp_lane_en};
+      always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+          dotp_q <= '0;
+        end else if (agu_load) begin
+          dotp_q <= '{en: dotp_id.en, w16: dotp_id.w16, sgn: dotp_id.sgn, lane_en: dotp_lane_en};
+        end
       end
+      // Only while the vector instruction is in ID: a later scalar multiply never sees dotp_q
+      assign dotp_ex = '{en: dotp_q.en & vrf_req, w16: dotp_q.w16, sgn: dotp_q.sgn,
+                         lane_en: dotp_q.lane_en};
+    end else begin : gen_no_dotp_ctrl
+      // No dot products (illegal in the decoder)
+      assign dotp_q  = '0;
+      assign dotp_ex = '0;
     end
-    // Only while the vector instruction is in ID: a later scalar multiply never sees dotp_q
-    assign dotp_ex = '{en: dotp_q.en & vrf_req, w16: dotp_q.w16, sgn: dotp_q.sgn,
-                       lane_en: dotp_q.lane_en};
     if (DoubleIf) begin : gen_agu_double_if
       cve2_agu_double #(
         .AddrWidth(32),

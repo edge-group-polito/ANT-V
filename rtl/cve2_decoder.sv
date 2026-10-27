@@ -19,6 +19,7 @@ module cve2_decoder #(
   parameter cve2_pkg::rv32m_e RV32M = cve2_pkg::RV32MFast,
   parameter cve2_pkg::rv32b_e RV32B = cve2_pkg::RV32BNone,
   parameter bit RV32VX                      = 1'b0,
+  parameter bit RV32VXDotp                  = 1'b1,
   parameter bit               XInterface    = 1'b0
 ) (
   input  logic                 clk_i,
@@ -1534,9 +1535,13 @@ module cve2_decoder #(
       illegal_insn = 1'b1;
     end
 
-    // Dot products are only implemented by the single-cycle fracturable multiplier
-    if (dotp_o.en && RV32M != RV32MSingleCycle) begin
+    // Dot products are only implemented by the single-cycle fracturable multiplier, and can be
+    // disabled (RV32VXDotp = 0) to measure their overhead
+    if (dotp_o.en && (!RV32VXDotp || RV32M != RV32MSingleCycle)) begin
+      // same as the default (illegal) case of the vector decoders: no VRF request
       illegal_insn        = 1'b1;
+      vrf_req_o           = 1'b0;
+      vx_instr_o          = 1'b0;
       dotp_o              = '0;
       vrf_we_o            = 1'b0;
       vrf_sel_operation_o = '0;
@@ -2395,14 +2400,18 @@ module cve2_decoder #(
               {6'b10_1000, 3'b010},          // vdot4au.vv
               {6'b10_1010, 3'b010},          // vdot4asu.vv
               {6'b10_1100, 3'b010}: begin    // vdot4a.vv
-                alu_operator_o = ALU_MAC;
+                if (RV32VXDotp) begin
+                  alu_operator_o = ALU_MAC;
+                end
               end
               {6'b10_1000, 3'b110},          // vdot4au.vx
               {6'b10_1010, 3'b110},          // vdot4asu.vx
               {6'b10_1100, 3'b110},          // vdot4a.vx
               {6'b10_1110, 3'b110}: begin    // vdot4aus.vx
-                alu_op_a_mux_sel_o = OP_A_REG_A;
-                alu_operator_o = ALU_MAC;
+                if (RV32VXDotp) begin
+                  alu_op_a_mux_sel_o = OP_A_REG_A;
+                  alu_operator_o = ALU_MAC;
+                end
               end
               //{6'b10_1111, 3'b010}: begin    // vnmsac.vv
               //end
@@ -2686,7 +2695,9 @@ module cve2_decoder #(
             {6'b10_1000, 3'b001},          // xvdot2au.vv
             {6'b10_1010, 3'b001},          // xvdot2asu.vv
             {6'b10_1100, 3'b001}: begin    // xvdot2a.vv
-              alu_operator_o = ALU_MAC;
+              if (RV32VXDotp) begin
+                alu_operator_o = ALU_MAC;
+              end
             end
             {6'b10_1000, 3'b110},          // xvdot4au.vx
             {6'b10_1010, 3'b110},          // xvdot4asu.vx
@@ -2696,8 +2707,10 @@ module cve2_decoder #(
             {6'b10_1010, 3'b101},          // xvdot2asu.vx
             {6'b10_1100, 3'b101},          // xvdot2a.vx
             {6'b10_1110, 3'b101}: begin    // xvdot2aus.vx
-              alu_op_a_mux_sel_o = OP_A_REG_A;
-              alu_operator_o = ALU_MAC;
+              if (RV32VXDotp) begin
+                alu_op_a_mux_sel_o = OP_A_REG_A;
+                alu_operator_o = ALU_MAC;
+              end
             end
             // Not supported for now (TODO: add later if required)
             //{6'b10_1111, 3'b010}: begin    // vnmsac.vv

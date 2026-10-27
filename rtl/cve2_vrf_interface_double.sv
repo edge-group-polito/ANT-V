@@ -2766,20 +2766,26 @@ end
   ////////////////////////////////////////
   // Debug monitor: VRF_SYNC_MST / _SLV //
   ////////////////////////////////////////
-  // In the nominal flow neither FSM should ever wait in a SYNC state, except for it to be the last state
-  // before completion (e.g. MST waiting for the SLV last beat to be processed), so every entry is
-  // reported as a warning, with the state it comes from, the state it will return to
-  // (as sampled on entry), the other FSM's state and the handshake/grant context; every
-  // exit is reported with its dwell time and destination. grep "[VRF-SYNC]" in the
-  // simulator output. Simulation only, no effect on the design.
+  // The VRF grants every request in 1cc, so in the nominal flow neither FSM waits in a SYNC
+  // state in the middle of an operation. The only legal SYNC is the master's end-of-op wait:
+  // with an even beat count the slave owns the last beat, so after its own last write the
+  // master waits in VRF_SYNC_MST, with VRF_IDLE_MST as return state, for vector_done_slv.
+  // That wait is not reported. Every other entry (master or slave) is reported as a warning,
+  // with the state it comes from, the state it will return to (as sampled on entry), the
+  // other FSM's state and the handshake/grant context; its exit is reported with its dwell
+  // time and destination. grep "[VRF-SYNC]" in the simulator output.
+  // Simulation only, no effect on the design.
   mst_state_t  dbg_mst_ret;
   slv_state_t  dbg_slv_ret;
+  logic        dbg_mst_end_wait, dbg_mst_end_wait_q; // legal end-of-op wait of the master
   int unsigned dbg_mst_sync_cycles, dbg_slv_sync_cycles;
   int unsigned dbg_mst_sync_entries, dbg_slv_sync_entries;
 
   // Return state as it will be once the entry edge has sampled it
   assign dbg_mst_ret = sample_sync_mst  ? saved_mst_state_d : saved_mst_state_q;
   assign dbg_slv_ret = (|sample_sync_slv || sample_saved_slv) ? saved_slv_state_d : saved_slv_state_q;
+  // Only VRF_INT_WRITE_MST / VRF_WRITE_MST on the master's last beat save VRF_IDLE_MST
+  assign dbg_mst_end_wait = (dbg_mst_ret == VRF_IDLE_MST);
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
@@ -2787,19 +2793,23 @@ end
       dbg_slv_sync_cycles  <= 0;
       dbg_mst_sync_entries <= 0;
       dbg_slv_sync_entries <= 0;
+      dbg_mst_end_wait_q   <= 1'b0;
     end else begin
       // Master
       if (curr_mst_state != VRF_SYNC_MST && next_mst_state == VRF_SYNC_MST) begin
-        dbg_mst_sync_entries <= dbg_mst_sync_entries + 1;
-        $display("[VRF-SYNC] %0t WARNING MST enters VRF_SYNC_MST #%0d from %s, return=%s (sampled=%b) | slv=%s | cnt=%0d first=%b last=%b last_odd=%b | slv_sync_mst=%b mst_sync_slv=%b | d_req=%b d_gnt=%b i_req=%b i_gnt=%b | vl=%0d sew=%0d sel=%b mult=%b mc=%b mem=%b slide=%b",
-                 $time, dbg_mst_sync_entries + 1, curr_mst_state.name(), dbg_mst_ret.name(), sample_sync_mst,
-                 curr_slv_state.name(), num_iterations_q, first_iteration_q, last_iteration_q, last_iteration_odd_q,
-                 slv_sync_mst, mst_sync_slv, data_req_o, data_gnt_i, instr_data_req_o, instr_data_gnt_i,
-                 vl_i, sew_i, sel_operation_q, mult_ops_q, multicycle_op_q, memory_op_q, slide_op_q);
+        dbg_mst_end_wait_q <= dbg_mst_end_wait;
+        if (!dbg_mst_end_wait) begin
+          dbg_mst_sync_entries <= dbg_mst_sync_entries + 1;
+          $display("[VRF-SYNC] %0t WARNING MST enters VRF_SYNC_MST #%0d from %s, return=%s (sampled=%b) | slv=%s | cnt=%0d first=%b last=%b last_odd=%b | slv_sync_mst=%b mst_sync_slv=%b | d_req=%b d_gnt=%b i_req=%b i_gnt=%b | vl=%0d sew=%0d sel=%b mult=%b mc=%b mem=%b slide=%b",
+                   $time, dbg_mst_sync_entries + 1, curr_mst_state.name(), dbg_mst_ret.name(), sample_sync_mst,
+                   curr_slv_state.name(), num_iterations_q, first_iteration_q, last_iteration_q, last_iteration_odd_q,
+                   slv_sync_mst, mst_sync_slv, data_req_o, data_gnt_i, instr_data_req_o, instr_data_gnt_i,
+                   vl_i, sew_i, sel_operation_q, mult_ops_q, multicycle_op_q, memory_op_q, slide_op_q);
+        end
       end
       if (curr_mst_state == VRF_SYNC_MST) begin
         dbg_mst_sync_cycles <= dbg_mst_sync_cycles + 1;
-        if (next_mst_state != VRF_SYNC_MST) begin
+        if (next_mst_state != VRF_SYNC_MST && !dbg_mst_end_wait_q) begin
           $display("[VRF-SYNC] %0t MST leaves VRF_SYNC_MST after %0d cycle(s) -> %s | slv=%s slv_sync_mst=%b vector_done_slv=%b slv_done_seen=%b",
                    $time, dbg_mst_sync_cycles + 1, next_mst_state.name(), curr_slv_state.name(),
                    slv_sync_mst, vector_done_slv, slv_done_seen_q);

@@ -81,6 +81,11 @@ parameters:
     paramtype: vlogdefine
     description: "Whether to use a double-width instruction interface to the VRF."
 
+  NO_DOTP:
+    datatype: bool
+    paramtype: vlogdefine
+    description: "Disable the dot-product instructions (RV32VXDotp = 0), to measure their overhead."
+
 
 targets:
   default: &default_target
@@ -91,7 +96,6 @@ targets:
     toplevel: cve2_top
     parameters:
       - tool_vivado ? (FPGA_XILINX=true)
-      - DOUBLE_W_IF=true
 
   asic_synthesis:
     filesets:

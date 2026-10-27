@@ -12,6 +12,7 @@
 module cve2_ex_block #(
   parameter cve2_pkg::rv32m_e RV32M           = cve2_pkg::RV32MFast,
   parameter bit RV32VX                        = 1'b0,
+  parameter bit RV32VXDotp                    = 1'b1,
   parameter cve2_pkg::rv32b_e RV32B           = cve2_pkg::RV32BNone
 ) (
   input  logic                  clk_i,
@@ -120,15 +121,22 @@ module cve2_ex_block #(
     always_ff @(posedge clk_i or negedge rst_ni) begin
       if (!rst_ni) begin
         multdiv_result_q <= 32'b0;
-        dot_result_q     <= 32'b0;
       end else begin
         if (use_mult_add) begin
           multdiv_result_q <= multdiv_result;
         end
-        if (use_mult_add && dotp_i.en) begin
+      end
+    end
+    if (RV32VXDotp) begin : gen_dot_reg
+      always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+          dot_result_q <= 32'b0;
+        end else if (use_mult_add && dotp_i.en) begin
           dot_result_q <= dot_result;
         end
       end
+    end else begin : gen_no_dot_reg
+      assign dot_result_q = 32'b0;
     end
   end else begin : gen_no_vec_mac_reg
     assign multdiv_result_q = multdiv_result;
@@ -155,7 +163,8 @@ module cve2_ex_block #(
         ALU_MAC: begin
           // vmacc: vd + product, dot products: vd + sum of the lane products
           alu_operand_a = alu_operand_c_i;
-          alu_operand_b = dotp_i.en ? dot_result_q : multdiv_result_q;
+          // RV32VXDotp folds the mux away when dot products are disabled
+          alu_operand_b = (RV32VXDotp && dotp_i.en) ? dot_result_q : multdiv_result_q;
           use_mult_add = 1'b1;
         end
         //ALU_NMSAC: begin
@@ -246,7 +255,8 @@ module cve2_ex_block #(
     if (RV32VX) begin : gen_multdiv_fast_frac
       // TODO: for simplicity, use a different module directly, instead of unifying the two arch
       cve2_multdiv_fast_fracturable #(
-        .RV32M(RV32M)
+        .RV32M(RV32M),
+        .RV32VXDotp(RV32VXDotp)
       ) multdiv_i (
         .clk_i             (clk_i),
         .rst_ni            (rst_ni),
