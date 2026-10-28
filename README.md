@@ -296,6 +296,26 @@ The vector CSRs are managed by `cve2_cs_registers_vec.sv`:
 | `vmacc.vv vd, vs1, vs2` | 101101 | 010 | vd = vs1 × vs2 + vd |
 | `vmacc.vx vd, rs1, vs2` | 101101 | 110 | vd = rs1 × vs2 + vd |
 
+#### Dot Product (Zvdot4a8i)
+
+4-way 8-bit dot products with 32-bit accumulation, as in the ratified Zvdot4a8i extension
+(formerly Zvqdotq). vtype SEW must be 32 (any other SEW raises an illegal instruction), `vl`
+counts 32-bit accumulators. Each 32-bit element holds four 8-bit lanes, lane 0 in the LSBs:
+
+`vd[i] = vd[i] + Σ_k vs2[i].k × B.k  (mod 2^32)`, with `B = vs1[i]` (.vv) or `x[rs1]` (.vx).
+
+| Instruction | funct6 | funct3 | Signedness (vs2 × vs1/rs1) |
+|-------------|--------|--------|-----------------------------|
+| `vdot4au.vv` / `.vx`  | 101000 | 010 / 110 | unsigned × unsigned |
+| `vdot4asu.vv` / `.vx` | 101010 | 010 / 110 | signed × unsigned |
+| `vdot4a.vv` / `.vx`   | 101100 | 010 / 110 | signed × signed |
+| `vdot4aus.vx`         | 101110 | 110       | unsigned × signed |
+
+They use the same VRF access pattern as `vmacc` (single and double interface). The lane
+products come from the fracturable multiplier (the fourth 8-bit lane uses a 9×9 multiplier),
+their sum from a separate adder, registered before the accumulation in the ALU. Dot products
+require the single-cycle multiplier (`RV32MSingleCycle`), otherwise they are illegal.
+
 
 ### 4.7 Vector Move Instructions
 
@@ -382,10 +402,30 @@ All standard vector arithmetic operations have custom VX equivalents:
 | Logical | `xvand.vv/vx/vi`, `xvor.vv/vx/vi`, `xvxor.vv/vx/vi` |
 | Min/Max | `xvmin[u].vv/vx`, `xvmax[u].vv/vx` |
 | MAC | `xvmacc.vv/vx` |
+| Dot product, 4 × 8-bit | `xvdot4a.vv/vx`, `xvdot4au.vv/vx`, `xvdot4asu.vv/vx`, `xvdot4aus.vx` |
+| Dot product, 2 × 16-bit | `xvdot2a.vv/vx`, `xvdot2au.vv/vx`, `xvdot2asu.vv/vx`, `xvdot2aus.vx` |
 | Move | `xvmv.v.v/v.x/v.i` |
 | Slide | `xvslideup.vx/vi`, `xvslidedown.vx/vi` |
 
 ---
+
+#### Custom Dot Products
+
+Same semantics, signedness encoding (funct6) and SEW=32 requirement as the standard
+`vdot4a*` (see 4.6). funct3 selects the lane width: 010 (.vv) / 110 (.vx) for 4 × 8-bit lanes,
+001 (.vv) / 101 (.vx) for 2 × 16-bit lanes.
+
+The index register also carries a **tail field** in bits [25:24], `t`, for reductions whose
+length K is not a multiple of the lanes per element. Only the last step of the K loop needs it:
+
+| Width | `t = 0` | `t = 1` | `t = 2` | `t = 3` |
+|-------|---------|---------|---------|---------|
+| 4 × 8-bit  | all lanes | lane 0 | lanes 0-1 | lanes 0-2 |
+| 2 × 16-bit | all lanes | lane 0 | (bit 25 reserved) | |
+
+With `t = K % 4` (8-bit) or `K % 2` (16-bit) no zero padding is needed. Bits [31:26] of the
+index register are reserved and should be 0. The standard encodings have no tail field: the
+padding lanes of one operand must be zero (`0 × x = 0`).
 
 ## 6. Implementation Details
 
@@ -418,7 +458,7 @@ The following RVV 1.0 features are **NOT supported**:
 | Segmented memory operations | Not implemented |
 | Fixed-point operations | Not implemented |
 | Floating-point operations | Not implemented |
-| Vector reduction operations | Not implemented |
+| Vector reduction operations | Not implemented (dot products reduce within an element only) |
 | Vector mask operations (partial) | Limited support |
 | Widening/narrowing operations | Not implemented |
 | `vstart` CSR | Not fully implemented |
