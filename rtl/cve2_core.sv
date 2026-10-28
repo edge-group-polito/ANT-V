@@ -924,7 +924,7 @@ module cve2_core import cve2_pkg::*; #(
         .lsu_data_gnt_o(if_instr_gnt),
         .lsu_data_rvalid_o(if_instr_rvalid),
         .lsu_data_we_i(1'b0), // Instruction interface is read only
-        .lsu_data_be_i(1'b0), // Instruction interface doesn't use byte enables
+        .lsu_data_be_i(3'b0), // Instruction interface doesn't use byte enables
         .lsu_data_addr_i(if_instr_addr),
         .lsu_data_wdata_i('0),
         .lsu_data_rdata_o(if_instr_rdata),
