@@ -329,17 +329,7 @@ module cve2_vrf_interface #(
             num_iterations_d = slide_op_i ? num_bytes_elements[31:2] - slide_offset_i[31:2] : num_bytes_elements[31:2];
             slide_offset_en = slide_op_i;
             offset_d = num_bytes_elements[1:0]; //TODO: check this does not break for VLEN >128 (should be ok)
-            // An empty slide (OFFSET >= vl: nothing to write) retires from IDLE, as in the double
-            // interface: started, its iteration count is 0 or underflows and it never terminates.
-            // agu_load_o above must stay ungated: it is what makes slide_offset_i carry the byte
-            // offset in this cycle.
-            if (slide_op_i && (slide_offset_i >= num_bytes_elements)) begin
-              vector_done_o = 1'b1;
-              num_iterations_d = '0;
-              vrf_next_state = VRF_IDLE;
-            end else begin
-              vrf_next_state = VRF_START;
-            end
+            vrf_next_state = VRF_START;
           end
         end
       end
@@ -721,10 +711,9 @@ module cve2_vrf_interface #(
           end else if (num_iterations_q == (no_offset ? 1 : 0)) begin
             last_iteration_d = 1'b1;
             vrf_next_state = VRF_STORE_READ;
-            // Misaligned: the last LSU write reads the word through mux_sel = ~curr_demux_sel,
-            // so the demux must flip here also when the store is a single word (first pass, no
-            // second read flipped it): otherwise the LSU gets the other, stale, register.
-            if (lsu_offset_q != 2'b00 && (lsu_done_i || first_iteration_q)) begin
+            // The last write reads the other buffer (mux_sel = ~curr_demux_sel): flip on every
+            // exit, also the single-word store (first_iteration_q), where lsu_done_i is still low
+            if (lsu_offset_q != 2'b00) begin
               next_demux_sel = ~curr_demux_sel;
             end
           // Send read request to memory
