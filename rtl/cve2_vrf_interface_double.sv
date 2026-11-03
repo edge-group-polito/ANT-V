@@ -129,8 +129,8 @@ typedef enum logic [5:0] {
   // Appended last so the existing encodings (ERR_STATE = 0x18) do not move
   VRF_DONE_MST,      // one cycle after the final VRF write: assert vector_done, then IDLE
   VRF_STORE_LAST,    // last pass of the store: no VRF read, LSU write of the last word
-  VRF_STORE_DRAIN,   // misaligned store: wait for the second LSU access of the last word
-  VRF_STREAM_MST     // unit-stride aligned load/store: LSU on the data if, VRF on the instr if
+  VRF_STORE_WAITDONE, // misaligned last word: wait for both halves of the LSU split access
+  VRF_STREAM_MST      // unit-stride aligned load/store: LSU on the data if, VRF on the instr if
 } mst_state_t;
 
 typedef enum logic [4:0] {
@@ -618,20 +618,22 @@ always_comb begin
     // Keyed on the state and not on last_iteration_q: with a delayed read grant in
     // VRF_STORE_WAITGNT, last_iteration_q is already set in the VRF_STORE_READ that
     // samples the last word.
+    // A misaligned last word is split in two by the LSU (word access): retiring on the
+    // grant of the first half would let the next instruction into EX while the LSU still
+    // drives lsu_addr_incr_req (corrupting its ALU result), and the second half would be
+    // issued with the scalar wdata/be. Retire only once both halves are done.
     VRF_STORE_LAST: begin
       if (lsu_gnt_i) begin
-        // Misaligned base: the LSU splits the word in two accesses and computes the second
-        // address with the ID-stage ALU, so the instruction must not retire before it is done
-        next_mst_state = (lsu_offset_q != 2'b00) ? VRF_STORE_DRAIN : VRF_IDLE_MST;
+        next_mst_state = (lsu_offset_q != 2'b00) ? VRF_STORE_WAITDONE : VRF_IDLE_MST;
       end else begin
         next_mst_state = VRF_STORE_LAST;
       end
     end
-    VRF_STORE_DRAIN: begin
+    VRF_STORE_WAITDONE: begin
       if (lsu_done_i) begin
         next_mst_state = VRF_IDLE_MST;
       end else begin
-        next_mst_state = VRF_STORE_DRAIN;
+        next_mst_state = VRF_STORE_WAITDONE;
       end
     end
     VRF_STORE_WAITLSU: begin
@@ -1286,8 +1288,8 @@ always_comb begin
     end
   end
   VRF_STORE_LAST: begin
-    // LSU write of the last word, retire once the LSU grants it (aligned base only, see
-    // VRF_STORE_DRAIN)
+    // LSU write of the last word. Aligned: retire once the LSU grants it.
+    // Misaligned: retire in VRF_STORE_WAITDONE
     vector_done_mst = lsu_gnt_i && (lsu_offset_q == 2'b00);
     lsu_req_o = 1'b1;
     if (lsu_offset_q != 2'b00) begin
@@ -1295,10 +1297,11 @@ always_comb begin
     end
     if (!lsu_gnt_i) read_delayed = 1'b1;
   end
-  VRF_STORE_DRAIN: begin
-    // Misaligned base: the LSU is doing the second access of the last word
+  VRF_STORE_WAITDONE: begin
+    // No new request: the LSU issues the second half on its own. The op stays in ID
+    // (vrf_req high), so the LSU keeps the vector wdata/be (tail be masks the second half)
     vector_done_mst = lsu_done_i;
-    mux_sel = ~curr_demux_sel;
+    mux_sel = ~curr_demux_sel; // only entered with lsu_offset_q != 0
   end
   VRF_STREAM_MST: begin
     // The data if is left to the LSU, the instr if is driven by the streaming logic
@@ -1321,9 +1324,9 @@ always_comb begin
       //end else
       if (num_iterations_q == (no_offset ? 1 : 0)) begin
         //last_iteration_d = 1'b1;
-        // Misaligned: VRF_STORE_LAST reads the word through mux_sel = ~curr_demux_sel, so the
-        // demux must flip here also for a single-word store
-        if (lsu_offset_q != 2'b00 && (lsu_done_i || first_iteration_q)) begin
+        // The last write reads the other buffer (mux_sel = ~curr_demux_sel): flip on every
+        // exit, also the single-word store (first_iteration_q), where lsu_done_i is still low
+        if (lsu_offset_q != 2'b00) begin
           next_demux_sel = ~curr_demux_sel;
         end
       // Send read request to memory
@@ -2330,9 +2333,18 @@ assign mst_owns_tail = ~even_iteration | ~mst_start_slv_q;
 
 // last_iteration_q rises when the counter reaches T. Stores write their last word in
 // VRF_STORE_LAST: last_iteration_q can already be set in the VRF_STORE_READ before it.
-// VRF_STORE_DRAIN: second LSU access of a misaligned last word, same byte enables.
+// The tail be is kept in VRF_STORE_WAITDONE, as the LSU computes the be of the second half
+// of a split access from it.
 assign mst_tail_write = (memory_op_q && sel_operation_q[2])                      ? (curr_mst_state == VRF_STORE_LAST ||
-                                                                                    curr_mst_state == VRF_STORE_DRAIN)
+                                                                                    curr_mst_state == VRF_STORE_WAITDONE)
+                      // Loads: last_iteration_q rises as soon as the LAST LSU request is issued
+                      // (VRF_LOAD_WRITE decrements the counter to T), i.e. BEFORE the penultimate
+                      // word is written to the VRF (that write happens when the last word's
+                      // lsu_done_i arrives). With a response latency > 1 cycle (misaligned source:
+                      // split access) the penultimate word got the tail be. Only the final write
+                      // (load_tail in VRF_LOAD, load_tail_wr_q in VRF_LOAD_WAITGNT) is partial.
+                      : (memory_op_q && sel_operation_q[3])                      ? ((curr_mst_state == VRF_LOAD && load_tail) ||
+                                                                                    (curr_mst_state == VRF_LOAD_WAITGNT && load_tail_wr_q))
                       : (mult_ops_q && sel_operation_q[0] && sel_operation_q[2]) ? last_iteration_mst
                                                                                  : last_iteration_q;
 
