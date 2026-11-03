@@ -36,6 +36,7 @@ module cve2_agu_double #(
     input logic [1:0] get_rs2_i,        // generate rs2
     input logic [1:0] get_rd_i,         // generate rd
     input logic [2:0] incr_i,
+    input logic instr_seq_i,      // streaming load/store: the instr interface accesses every word of rd, not only the odd ones
 
     // slide support signals
     input logic is_slide_i,       // the current instruction is a slide
@@ -124,7 +125,8 @@ module cve2_agu_double #(
     
         instr_mem_if_addr_o = get_rs1_i[1] ? {vrf_effective_start_addr[31:VRegAddrWidth+5], rs1_i[4:3], addr_rs1_q[MaxCntWidth-1:1],1'b1, 2'b00} :
                                 get_rs2_i[1] ? {vrf_effective_start_addr[31:VRegAddrWidth+5], rs2_i[4:3], addr_rs2_q[MaxCntWidth-1:1],1'b1, 2'b00} :
-                                get_rd_i[1]  ? {vrf_effective_start_addr[31:VRegAddrWidth+5], rd_i[4:3], addr_rd_q[MaxCntWidth-1:1],1'b1, 2'b00}  : '0;
+                                get_rd_i[1]  ? (instr_seq_i ? {vrf_effective_start_addr[31:VRegAddrWidth+5], rd_i[4:3], addr_rd_q, 2'b00} :
+                                                              {vrf_effective_start_addr[31:VRegAddrWidth+5], rd_i[4:3], addr_rd_q[MaxCntWidth-1:1],1'b1, 2'b00})  : '0;
     end
     
 endmodule

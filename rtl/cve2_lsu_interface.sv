@@ -30,6 +30,7 @@ module cve2_lsu_interface (
   input  logic        load_start_i,
   input  logic        unit_stride_i,
   input  logic        vec_op_i,
+  input  logic        incr_on_gnt_i,  // streaming load/store: one request per cycle, see below
   // signals from VRF
   input  logic        vrf_req_i,
   input  logic [31:0] vrf_data_i,
@@ -82,6 +83,10 @@ module cve2_lsu_interface (
     // when we start a vector memory op load the start address
     if (load_start_i) begin
       addr_d = start_addr_i;
+    // streaming (unit-stride, aligned): the next request is issued in the cycle after the grant,
+    // before the response, so the address moves on the grant
+    end else if (incr_on_gnt_i) begin
+      if (lsu_gnt_i && !lsu_incr_req_i) addr_d = addr_q + 4;
     // when the previous mem op is finished we increment the address
     end else if(lsu_resp_valid_i) begin
       addr_d = unit_stride_i ? addr_q + 4 : scalar_addr_i;

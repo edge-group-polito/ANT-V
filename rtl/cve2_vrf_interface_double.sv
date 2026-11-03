@@ -49,6 +49,7 @@ module cve2_vrf_interface_double #(
     input  logic [31:0] instr_data_rdata_i,
 
     output logic        use_double_if_o,
+    output logic        stream_o,           // streaming load/store active (LSU address on gnt, AGU on every word)
 
     // LSU control signals
     output logic         data_load_addr_o,  // loads the address for the memory operation in a counter
@@ -128,7 +129,8 @@ typedef enum logic [5:0] {
   // Appended last so the existing encodings (ERR_STATE = 0x18) do not move
   VRF_DONE_MST,      // one cycle after the final VRF write: assert vector_done, then IDLE
   VRF_STORE_LAST,    // last pass of the store: no VRF read, LSU write of the last word
-  VRF_STORE_WAITDONE // misaligned last word: wait for both halves of the LSU split access
+  VRF_STORE_DRAIN,   // misaligned store: wait for the second LSU access of the last word
+  VRF_STREAM_MST     // unit-stride aligned load/store: LSU on the data if, VRF on the instr if
 } mst_state_t;
 
 typedef enum logic [4:0] {
@@ -253,8 +255,23 @@ logic sel_slide_be;                             // signal used to select the cor
 logic [3:0] slide_offset_be;
 logic no_offset_first;
 logic slide_empty;                              // slide with OFFSET >= vl: no beat to execute
-logic op_uses_slave;                            // this op will start the slave FSM
+logic op_uses_slave;                            // this op will use the instr if (slave FSM or streaming)
 logic mst_start_hold;                           // wait in IDLE until instruction fetch is quiet
+
+// Streaming load/store (see the section before the outputs)
+logic stream_ok;                                // START: unit-stride memory op with a word-aligned base
+logic stream_active;                            // the streaming path drives the LSU and the instr if
+logic str_load;                                 // 1 - load, 0 - store
+logic [1:0] str_cnt_q;                          // words in the FIFO (rd_q, rd_q_1, buffer_q)
+logic [1:0] str_infl_q;                         // requests issued, response not yet in the FIFO
+logic [2:0] str_occ;                            // str_cnt_q + str_infl_q, words issued and not completed
+logic [2:0] str_left_lo;                        // low bits of the words not completed
+logic str_to_issue;                             // words not completed > str_occ
+logic [1:0] str_wptr_q, str_rptr_q;
+logic [PIPE_WIDTH-1:0] str_push_data, str_head;
+logic str_issue_req, str_issue_fire, str_push, str_pop, str_last;
+logic str_lsu_req, str_vrf_req;
+logic [3:0] str_be;
 
 // Handle misaligned sub-word mem accesses
 // TODO: only store are supported and tested for now (to improve with load)
@@ -346,7 +363,9 @@ always_comb begin
       // MEM ops
       // -------
       end else begin
-        if (sel_operation_q[2]==1'b1) begin // STORE op
+        if (stream_ok) begin // unit-stride, aligned: streaming path
+          next_mst_state = VRF_STREAM_MST;
+        end else if (sel_operation_q[2]==1'b1) begin // STORE op
           if (data_gnt_i) begin
             next_mst_state = VRF_STORE_READ;
           end else begin
@@ -599,22 +618,20 @@ always_comb begin
     // Keyed on the state and not on last_iteration_q: with a delayed read grant in
     // VRF_STORE_WAITGNT, last_iteration_q is already set in the VRF_STORE_READ that
     // samples the last word.
-    // A misaligned last word is split in two by the LSU (word access): retiring on the
-    // grant of the first half would let the next instruction into EX while the LSU still
-    // drives lsu_addr_incr_req (corrupting its ALU result), and the second half would be
-    // issued with the scalar wdata/be. Retire only once both halves are done.
     VRF_STORE_LAST: begin
       if (lsu_gnt_i) begin
-        next_mst_state = (lsu_offset_q != 2'b00) ? VRF_STORE_WAITDONE : VRF_IDLE_MST;
+        // Misaligned base: the LSU splits the word in two accesses and computes the second
+        // address with the ID-stage ALU, so the instruction must not retire before it is done
+        next_mst_state = (lsu_offset_q != 2'b00) ? VRF_STORE_DRAIN : VRF_IDLE_MST;
       end else begin
         next_mst_state = VRF_STORE_LAST;
       end
     end
-    VRF_STORE_WAITDONE: begin
+    VRF_STORE_DRAIN: begin
       if (lsu_done_i) begin
         next_mst_state = VRF_IDLE_MST;
       end else begin
-        next_mst_state = VRF_STORE_WAITDONE;
+        next_mst_state = VRF_STORE_DRAIN;
       end
     end
     VRF_STORE_WAITLSU: begin
@@ -643,7 +660,18 @@ always_comb begin
         next_mst_state = VRF_STORE_WAITGNT;
       end
     end
-    
+
+    // Streaming load/store: ends on the completion of the last word. A load retires one
+    // cycle after the grant of its last VRF write (VRF_DONE_MST), a store on the grant of
+    // its last LSU write, as in the master-only path.
+    VRF_STREAM_MST: begin
+      if (str_pop && str_last) begin
+        next_mst_state = str_load ? VRF_DONE_MST : VRF_IDLE_MST;
+      end else begin
+        next_mst_state = VRF_STREAM_MST;
+      end
+    end
+
     // Multicycle OPS
     // --------------
     // vmulh
@@ -913,7 +941,9 @@ always_comb begin
       end
       
     end else begin // MEMORY ops
-      if (sel_operation_q[2] == 1'b1) begin           // store
+      if (stream_ok) begin                            // streaming: first request already here
+        lsu_req_o = str_lsu_req;
+      end else if (sel_operation_q[2] == 1'b1) begin  // store
         data_req_o = 1'b1;
         agu_get_rd_mst = 1'b1;
         if (data_gnt_i) begin
@@ -1256,8 +1286,8 @@ always_comb begin
     end
   end
   VRF_STORE_LAST: begin
-    // LSU write of the last word. Aligned: retire once the LSU grants it.
-    // Misaligned: retire in VRF_STORE_WAITDONE
+    // LSU write of the last word, retire once the LSU grants it (aligned base only, see
+    // VRF_STORE_DRAIN)
     vector_done_mst = lsu_gnt_i && (lsu_offset_q == 2'b00);
     lsu_req_o = 1'b1;
     if (lsu_offset_q != 2'b00) begin
@@ -1265,11 +1295,16 @@ always_comb begin
     end
     if (!lsu_gnt_i) read_delayed = 1'b1;
   end
-  VRF_STORE_WAITDONE: begin
-    // No new request: the LSU issues the second half on its own. The op stays in ID
-    // (vrf_req high), so the LSU keeps the vector wdata/be (tail be masks the second half)
+  VRF_STORE_DRAIN: begin
+    // Misaligned base: the LSU is doing the second access of the last word
     vector_done_mst = lsu_done_i;
-    mux_sel = ~curr_demux_sel; // only entered with lsu_offset_q != 0
+    mux_sel = ~curr_demux_sel;
+  end
+  VRF_STREAM_MST: begin
+    // The data if is left to the LSU, the instr if is driven by the streaming logic
+    lsu_req_o = str_lsu_req;
+    vector_done_mst = !str_load && str_pop && str_last;
+    dec_iterations_mst = str_pop; // num_iterations_q counts the words not completed
   end
   VRF_STORE_WAITLSU: begin
     if (lsu_offset_q != 2'b00) begin
@@ -1286,9 +1321,9 @@ always_comb begin
       //end else
       if (num_iterations_q == (no_offset ? 1 : 0)) begin
         //last_iteration_d = 1'b1;
-        // The last write reads the other buffer (mux_sel = ~curr_demux_sel): flip on every
-        // exit, also the single-word store (first_iteration_q), where lsu_done_i is still low
-        if (lsu_offset_q != 2'b00) begin
+        // Misaligned: VRF_STORE_LAST reads the word through mux_sel = ~curr_demux_sel, so the
+        // demux must flip here also for a single-word store
+        if (lsu_offset_q != 2'b00 && (lsu_done_i || first_iteration_q)) begin
           next_demux_sel = ~curr_demux_sel;
         end
       // Send read request to memory
@@ -2230,6 +2265,12 @@ always_comb begin
 
   endcase
 
+  // Streaming load/store: the slave stays idle and the instr if carries the VRF side
+  if (stream_active) begin
+    instr_data_req_o = str_vrf_req;
+    instr_data_we_o  = str_load;
+  end
+
 
 end
 
@@ -2289,18 +2330,9 @@ assign mst_owns_tail = ~even_iteration | ~mst_start_slv_q;
 
 // last_iteration_q rises when the counter reaches T. Stores write their last word in
 // VRF_STORE_LAST: last_iteration_q can already be set in the VRF_STORE_READ before it.
-// The tail be is kept in VRF_STORE_WAITDONE, as the LSU computes the be of the second half
-// of a split access from it.
+// VRF_STORE_DRAIN: second LSU access of a misaligned last word, same byte enables.
 assign mst_tail_write = (memory_op_q && sel_operation_q[2])                      ? (curr_mst_state == VRF_STORE_LAST ||
-                                                                                    curr_mst_state == VRF_STORE_WAITDONE)
-                      // Loads: last_iteration_q rises as soon as the LAST LSU request is issued
-                      // (VRF_LOAD_WRITE decrements the counter to T), i.e. BEFORE the penultimate
-                      // word is written to the VRF (that write happens when the last word's
-                      // lsu_done_i arrives). With a response latency > 1 cycle (misaligned source:
-                      // split access) the penultimate word got the tail be. Only the final write
-                      // (load_tail in VRF_LOAD, load_tail_wr_q in VRF_LOAD_WAITGNT) is partial.
-                      : (memory_op_q && sel_operation_q[3])                      ? ((curr_mst_state == VRF_LOAD && load_tail) ||
-                                                                                    (curr_mst_state == VRF_LOAD_WAITGNT && load_tail_wr_q))
+                                                                                    curr_mst_state == VRF_STORE_DRAIN)
                       : (mult_ops_q && sel_operation_q[0] && sel_operation_q[2]) ? last_iteration_mst
                                                                                  : last_iteration_q;
 
@@ -2327,8 +2359,11 @@ assign slide_empty = slide_op_i && (slide_offset_i >= num_bytes_elements);
 // keeps the 1-cycle master/slave skew the handshake relies on. Fetch then stays quiet for
 // the whole op: the prefetch FIFO is full and nothing is consumed while the op is in ID.
 // The delay is bounded by the outstanding fetches (NUM_REQS = 2).
-assign op_uses_slave  = !memory_op_i && slv_active &&
-                        (mult_ops_i || (!slide_op_i && !multicycle_op_i && (sel_operation_i[0] || sel_operation_i[1])));
+// Unit-stride memory ops may take the streaming path, which uses the instr if as well (the
+// base alignment is known only in START, so they all wait).
+assign op_uses_slave  = (!memory_op_i && slv_active &&
+                         (mult_ops_i || (!slide_op_i && !multicycle_op_i && (sel_operation_i[0] || sel_operation_i[1])))) ||
+                        (memory_op_i && unit_stride_i);
 assign mst_start_hold = if_busy_i && op_uses_slave;
 always_comb begin
   // Default values
@@ -2368,10 +2403,11 @@ always_comb begin
 end
 
 // AGU control signals
-assign agu_incr_o = agu_incr_mst | agu_incr_slv;
+// Streaming: the rd counter walks every word of the register group on the instr if
+assign agu_incr_o = agu_incr_mst | agu_incr_slv | {str_vrf_req && instr_data_gnt_i, 2'b00};
 assign agu_get_rs1_o = {agu_get_rs1_slv, agu_get_rs1_mst};
 assign agu_get_rs2_o = {agu_get_rs2_slv, agu_get_rs2_mst};
-assign agu_get_rd_o = {agu_get_rd_slv, agu_get_rd_mst};
+assign agu_get_rd_o = {agu_get_rd_slv | str_vrf_req, agu_get_rd_mst};
 
 // Done signal
 assign vector_done_o = vector_done_mst | vector_done_slv; // if mst_start_slv_q && !even_iteration vector_done_slv else vector_done_mst
@@ -2452,6 +2488,79 @@ end
 
 
 
+
+  ////////////////////////////
+  // Streaming load / store //
+  ////////////////////////////
+
+  // Unit-stride vle/vse with a word-aligned base. The data if is left to the LSU for the whole
+  // instruction (one access per cycle: the LSU is pipelined for aligned accesses and
+  // cve2_lsu_interface moves the address on the grant), the VRF side of every word goes on the
+  // instr if:
+  //   load:  LSU read (data if) -> FIFO -> VRF write (instr if)
+  //   store: VRF read (instr if) -> FIFO -> LSU write (data if)
+  // A request is issued only while (words in flight + words in the FIFO) < 3, so with a 1-cycle
+  // response both sides do one access per cycle, and the credit check uses registered state only
+  // (no path from the grant of one interface to the request of the other).
+  // Misaligned bases (split LSU accesses, ID-stage ALU for the second address) and strided ops
+  // keep the master-only path.
+  assign stream_ok     = memory_op_q && unit_stride_i && (lsu_offset_i == 2'b00);
+  assign stream_active = (curr_mst_state == VRF_START_MST && stream_ok) || (curr_mst_state == VRF_STREAM_MST);
+  assign stream_o      = stream_active;
+  assign str_load      = sel_operation_q[3];
+
+  // Words still to complete: num_iterations_q, decremented on every completion (pop), as the
+  // master-only path does per word. It counts the whole words, the last one sits at
+  // T = (no_offset ? 1 : 0), so the words not completed are num_iterations_q + !no_offset.
+  // Words still to issue = words not completed - str_occ: instead of a counter, compare with
+  // str_occ (<= 3), which needs only the low bits of num_iterations_q.
+  assign str_occ       = {1'b0, str_cnt_q} + {1'b0, str_infl_q};
+  assign str_left_lo   = {1'b0, num_iterations_q[1:0]} + {2'b00, !no_offset};
+  assign str_to_issue  = (num_iterations_q[PIPE_WIDTH-3:2] != '0) || (str_left_lo > str_occ);
+  assign str_issue_req = stream_active && str_to_issue && (str_occ < 3'd3);
+  assign str_last      = (num_iterations_q == (no_offset ? 1 : 0));
+  // FIFO entries: registers of the master-only path, unused while streaming
+  assign str_head      = (str_rptr_q == 2'd0) ? rd_q : (str_rptr_q == 2'd1) ? rd_q_1 : buffer_q;
+  // Only the last word can be partial
+  assign str_be        = (str_last && !no_offset) ? offset_be : 4'b1111;
+
+  always_comb begin
+    if (str_load) begin
+      str_lsu_req    = str_issue_req;
+      str_issue_fire = str_issue_req && lsu_gnt_i;
+      str_push       = stream_active && (str_infl_q != '0) && lsu_done_i;
+      str_push_data  = wdata_i;                      // LSU read data (WB stage)
+      str_vrf_req    = stream_active && (str_cnt_q != '0);
+      str_pop        = str_vrf_req && instr_data_gnt_i;
+    end else begin
+      str_vrf_req    = str_issue_req;
+      str_issue_fire = str_issue_req && instr_data_gnt_i;
+      str_push       = stream_active && (str_infl_q != '0) && instr_data_rvalid_i;
+      str_push_data  = instr_data_rdata_i;
+      str_lsu_req    = stream_active && (str_cnt_q != '0);
+      str_pop        = str_lsu_req && lsu_gnt_i;
+    end
+  end
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      str_cnt_q   <= '0;
+      str_infl_q  <= '0;
+      str_wptr_q  <= '0;
+      str_rptr_q  <= '0;
+    end else if (curr_mst_state == VRF_IDLE_MST) begin
+      str_cnt_q   <= '0;
+      str_infl_q  <= '0;
+      str_wptr_q  <= '0;
+      str_rptr_q  <= '0;
+    end else if (stream_active) begin
+      str_cnt_q   <= str_cnt_q + {1'b0, str_push} - {1'b0, str_pop};
+      str_infl_q  <= str_infl_q + {1'b0, str_issue_fire} - {1'b0, str_push};
+      if (str_push) str_wptr_q <= (str_wptr_q == 2'd2) ? 2'd0 : str_wptr_q + 2'd1;
+      if (str_pop)  str_rptr_q <= (str_rptr_q == 2'd2) ? 2'd0 : str_rptr_q + 2'd1;
+    end
+  end
+  // The FIFO entries are written in the FFs of rd_q, rd_q_1 and buffer_q
 
   //////////////////
   // BE selector  //
@@ -2535,7 +2644,9 @@ end
     end
   end
   // While a load/store access waits for its grant the byte enable must not change
-  assign data_be_o = (memory_op_q && curr_state_delay != 2'b00) ? buffer_be_q : data_be;
+  // Streaming: data_be_o is only the LSU be (tail of a store), the FIFO head is stable until its grant
+  assign data_be_o = stream_active                                ? (str_load ? 4'b1111 : str_be) :
+                     (memory_op_q && curr_state_delay != 2'b00) ? buffer_be_q : data_be;
 
   ////////////////////////////////
   // Slide instructions support //
@@ -2584,6 +2695,9 @@ end
       if (buffer_en) begin
         buffer_q    <= buffer_d;
         buffer_be_q <= data_be;
+      // Streaming: FIFO entry 2 (buffer_en is low while streaming)
+      end else if (str_push && str_wptr_q == 2'd2) begin
+        buffer_q    <= str_push_data;
       end
     end
   end
@@ -2663,12 +2777,18 @@ end
       if (rs3_en_mst && curr_demux_sel == 1) begin
         rs3_q_1 <= rs3_d_1;
       end
-      if (rd_en_mst || rd_buf_en) 
+      if (rd_en_mst || rd_buf_en) begin
         if (curr_mc_rd_demux_sel == 0) begin
           rd_q <= rd_d;
         end else begin
           rd_q_1 <= rd_d;
         end
+      // Streaming: FIFO entries 0 and 1 (rd_en_mst and rd_buf_en are low while streaming)
+      end else if (str_push && str_wptr_q == 2'd0) begin
+        rd_q <= str_push_data;
+      end else if (str_push && str_wptr_q == 2'd1) begin
+        rd_q_1 <= str_push_data;
+      end
     end
   end
   always_comb begin
@@ -2737,7 +2857,9 @@ end
 
   assign rdata_a_o = (curr_mc_mux_sel == 0) ? (src_sel_slv ? rs1_q_slv : rs1_q) : rs1_q_1;
   assign rdata_b_o = (curr_mc_mux_sel == 0) ? (src_sel_slv ? rs2_q_slv : rs2_q) : rs2_q_1;
-  assign rdata_c_o = rdata_mux ? buffer_q : ((mux_sel) ? rs3_q_1 : (src_sel_slv_c ? rs3_q_slv : rs3_q)); // TODO: not supported for now in 2 ops mode
+  // Streaming store: the LSU writes the FIFO head
+  assign rdata_c_o = stream_active ? str_head :
+                     rdata_mux ? buffer_q : ((mux_sel) ? rs3_q_1 : (src_sel_slv_c ? rs3_q_slv : rs3_q)); // TODO: not supported for now in 2 ops mode
   // mux for the write data
   // Same function as
   //   case (wdata_mux)
@@ -2768,11 +2890,13 @@ end
   end
 
 
-  assign instr_data_wdata_o = (write_delayed_slv_q) ? rd_q_slv : wdata_i;
+  // Streaming load: the VRF write is the FIFO head
+  assign instr_data_wdata_o = stream_active ? str_head : ((write_delayed_slv_q) ? rd_q_slv : wdata_i);
   // The slave owns the final beat whenever the beat count is even; that beat
   // carries the partial tail when offset_q != 0. No slide or STR support on this
   // interface, so offset_be is the only non-full pattern it can ever need.
-  assign instr_data_be_o = (last_iteration_q && !mst_owns_tail) ? offset_be : 4'b1111;
+  assign instr_data_be_o = stream_active ? (str_load ? str_be : 4'b1111) :
+                           (last_iteration_q && !mst_owns_tail) ? offset_be : 4'b1111;
 
 `ifndef SYNTHESIS
   ////////////////////////////////////////

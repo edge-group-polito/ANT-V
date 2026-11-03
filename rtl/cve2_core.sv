@@ -332,6 +332,7 @@ module cve2_core import cve2_pkg::*; #(
   logic [31:0] vrf_instr_data_addr; // TODO: generate it
 
   logic use_double_if;
+  logic vrf_stream; // streaming vector load/store: LSU on the data if, VRF on the instr if
   logic vmacc_vx; // vmacc.vx instruction decoded (special case with double if)
   cve2_pkg::dotp_ctrl_t dotp_id;  // dot-product controls from the decoder
   cve2_pkg::dotp_ctrl_t dotp_q;   // sampled at the start of the vector op
@@ -822,6 +823,7 @@ module cve2_core import cve2_pkg::*; #(
       .load_start_i(lsu_if_load_addr),
       .unit_stride_i(unit_stride),
       .vec_op_i(vrf_req),
+      .incr_on_gnt_i(vrf_stream),
       // VRF signals
       .vrf_req_i(vrf_lsu_req),
       .vrf_data_i(vrf_rdata_c),
@@ -1145,6 +1147,7 @@ module cve2_core import cve2_pkg::*; #(
         .instr_data_wdata_o(vrf_instr_data_wdata),
         .instr_data_rdata_i(vrf_instr_data_rdata),
         .use_double_if_o(use_double_if),
+        .stream_o(vrf_stream),
         // LSU control signals
         .data_load_addr_o(lsu_if_load_addr),
         .lsu_gnt_i(vrf_lsu_gnt),
@@ -1249,7 +1252,8 @@ module cve2_core import cve2_pkg::*; #(
       assign vrf_instr_data_req = 1'b0; // Not used in single interface mode, as instruction interface doesn't request data from VRF
       assign vrf_instr_data_we =1'b0;
       assign vrf_instr_data_be = 4'b0;
-      assign vrf_instr_data_wdata = 32'b0; 
+      assign vrf_instr_data_wdata = 32'b0;
+      assign vrf_stream = 1'b0;
     end
   end else begin : no_vrf_block
   // Hardwire all output of VRF if to 0
@@ -1273,7 +1277,8 @@ module cve2_core import cve2_pkg::*; #(
     assign vrf_instr_data_req = 1'b0; // Not used in single interface mode, as instruction interface doesn't request data from VRF
     assign vrf_instr_data_we =1'b0;
     assign vrf_instr_data_be = 4'b0;
-    assign vrf_instr_data_wdata = 32'b0; 
+    assign vrf_instr_data_wdata = 32'b0;
+    assign vrf_stream = 1'b0;
   end
   if (RV32VX) begin : agu_if_block
     // AGU, translates the VR numbero to a memory address
@@ -1337,6 +1342,7 @@ module cve2_core import cve2_pkg::*; #(
         .get_rs2_i(agu_get_rs2),
         .get_rd_i(agu_get_rd),  
         .incr_i(agu_incr),
+        .instr_seq_i(vrf_stream),
         // slide instructions
         .is_slide_i(vrf_slide_op),
         .is_slide_up_i(is_slide_up),
