@@ -185,6 +185,8 @@ logic even_iteration;
 logic slv_active;                       // the slave has at least one beat to execute
 logic mst_owns_tail;                    // the master, not the slave, executes the final beat
 logic mst_tail_write;                   // the master's current write is the final (partial) beat
+logic wr_only_op;                       // vmv.v.x / vmv.v.i: master-only, writes without reading
+logic wr_only_done;                     // wr_only_op: every beat has been written
 
 // Slave FSM
 logic [2:0] agu_incr_slv;
@@ -513,7 +515,10 @@ always_comb begin
       // mst_owns_tail degenerates to ~even_iteration whenever mst_start_slv_q is
       // set, so .vv/.vx with a running slave are unchanged.
       // Slides terminate through the first arm like any master-only op.
-      if (last_iteration_mst && mst_owns_tail) begin
+      // Write-only ops (see wr_only_op) terminate on their own counter condition.
+      if (wr_only_op) begin
+        next_mst_state = wr_only_done ? VRF_IDLE_MST : VRF_WRITE_MST;
+      end else if (last_iteration_mst && mst_owns_tail) begin
         next_mst_state = VRF_IDLE_MST;
       end else if (last_iteration_q && !mst_owns_tail) begin
         next_mst_state = VRF_SYNC_MST; // wait at least 1cc to resync with slave
@@ -938,6 +943,7 @@ always_comb begin
           if (data_gnt_i) begin
             agu_incr_mst[2] = 1'b1;
             mst_sync_slv_d[3] = 1'b1;
+            if (wr_only_op) dec_iterations_mst = 1'b1; // count the first beat (see wr_only_op)
           end
         end
       end
@@ -1156,7 +1162,24 @@ always_comb begin
   end
   VRF_WRITE_MST: begin
     // Must assert done on exactly the conditions that reach VRF_IDLE_MST above.
-    if (last_iteration_mst && mst_owns_tail) begin
+    if (wr_only_op) begin
+      // Write-only (see wr_only_op): one beat per grant until every beat is written
+      if (wr_only_done) begin
+        vector_done_mst = 1'b1;
+      end else begin
+        data_we_o = 1'b1;
+        data_req_o = 1'b1;
+        agu_get_rd_mst = 1'b1;
+        if (data_gnt_i) begin
+          if (first_iteration_q) begin
+            first_iteration_d = 1'b0;
+          end
+          agu_incr_mst[2] = 1'b1;
+          mst_sync_slv_d[3] = 1'b1;
+          dec_iterations_mst = 1'b1;
+        end
+      end
+    end else if (last_iteration_mst && mst_owns_tail) begin
       vector_done_mst = 1'b1;
     end else if (last_iteration_mst) begin
       vector_done_mst = 1'b0; // Do nothing, last iteration is for the slave
@@ -2331,6 +2354,12 @@ assign slv_active = (num_bytes_elements > 'd4);
 // last_iteration_q flag.
 assign mst_owns_tail = ~even_iteration | ~mst_start_slv_q;
 
+// Write-only ops (vmv.v.x, vmv.v.i and the xvmv versions: the only non-memory ops with
+// sel_operation = 4'b1000).
+assign wr_only_op   = !memory_op_q && !mult_ops_q && !slide_op_q && !multicycle_op_q &&
+                      (sel_operation_q == 4'b1000);
+assign wr_only_done = (num_iterations_q == {(PIPE_WIDTH-2){~no_offset}});
+
 // last_iteration_q rises when the counter reaches T. Stores write their last word in
 // VRF_STORE_LAST: last_iteration_q can already be set in the VRF_STORE_READ before it.
 // The tail be is kept in VRF_STORE_WAITDONE, as the LSU computes the be of the second half
@@ -2346,6 +2375,8 @@ assign mst_tail_write = (memory_op_q && sel_operation_q[2])                     
                       : (memory_op_q && sel_operation_q[3])                      ? ((curr_mst_state == VRF_LOAD && load_tail) ||
                                                                                     (curr_mst_state == VRF_LOAD_WAITGNT && load_tail_wr_q))
                       : (mult_ops_q && sel_operation_q[0] && sel_operation_q[2]) ? last_iteration_mst
+                      // Write-only: the beat written while the counter is at T is the last one
+                      : wr_only_op                                               ? (num_iterations_q == (no_offset ? 1 : 0))
                                                                                  : last_iteration_q;
 
 // Parity of the beat count, which decides whether the last beat belongs to the

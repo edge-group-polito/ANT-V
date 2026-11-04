@@ -115,6 +115,15 @@ module cve2_vrf_interface #(
   logic [3:0] offset_be;
   logic no_offset;
 
+  // Write-only ops (vmv.v.x, vmv.v.i and the xvmv versions: the only non-memory ops with
+  // sel_operation = 4'b1000).
+  logic wr_only_op;
+  logic wr_only_tail;   // wr_only_op: the write of this cycle is the last beat
+  assign wr_only_op   = !memory_op_i && !mult_ops_i && !slide_op_i && !multicycle_op_i &&
+                        (sel_operation_i == 4'b1000);
+  assign wr_only_tail = wr_only_op && (vrf_state == VRF_START || vrf_state == VRF_WRITE) &&
+                        !last_iteration_q && (num_iterations_q == (no_offset ? 1 : 0));
+
   // Internal registers signals
   logic rs1_en, rs2_en, rs3_en, rd_en;    // rd is used only for load operations
   logic [PIPE_WIDTH-1:0] rs1_q, rs2_q, rs3_q, rd_q;
@@ -228,7 +237,7 @@ module cve2_vrf_interface #(
       end
       else data_be_o = slide_offset_be;
     end
-    else if (last_iteration_q) begin
+    else if (last_iteration_q || wr_only_tail) begin
       data_be_o = offset_be;
     end
     else begin
@@ -386,6 +395,11 @@ module cve2_vrf_interface #(
               if (data_gnt_i) begin
                 agu_incr_o = 1'b1;
                 vrf_next_state = VRF_WRITE;
+                // Count the first beat (see wr_only_op), as VRF_WRITE does for the others
+                if (wr_only_op) begin
+                  if (num_iterations_q == (no_offset ? 1 : 0)) last_iteration_d = 1'b1;
+                  else num_iterations_d = num_iterations_q - 1;
+                end
               end else vrf_next_state = VRF_START;
             end else begin                              // illegal operation  
               vrf_next_state = VRF_IDLE;
