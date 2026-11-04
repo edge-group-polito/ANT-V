@@ -183,6 +183,7 @@ module cve2_core import cve2_pkg::*; #(
   logic        ctrl_busy;
   logic        if_busy;
   logic        lsu_busy;
+  logic        vrf_fetch_hold; // double if: a vector op using the instr if is in ID, no new fetch
 
   // Register File
   logic [4:0]  rf_raddr_a;
@@ -496,7 +497,9 @@ module cve2_core import cve2_pkg::*; #(
   assign perf_iside_wait = id_in_ready & ~instr_valid_id;
 
   // For non secure CVE2 only the bottom bit of fetch enable is considered
-  assign instr_req_gated = instr_req_int;
+  // Double if: no new fetch while a vector op that uses the instruction interface is in ID
+  // (see fetch_hold_o in cve2_vrf_interface_double)
+  assign instr_req_gated = instr_req_int & ~vrf_fetch_hold;
 
   //////////////
   // ID stage //
@@ -1174,6 +1177,7 @@ module cve2_core import cve2_pkg::*; #(
         .is_slide_up_i(is_slide_up),
         // Instruction fetch busy: the slave shares the instruction port with fetch
         .if_busy_i(if_busy),
+        .fetch_hold_o(vrf_fetch_hold),
         // LSU
         .lsu_req_o(vrf_lsu_req),
         .lsu_done_i(lsu_resp_valid),
@@ -1254,9 +1258,11 @@ module cve2_core import cve2_pkg::*; #(
       assign vrf_instr_data_be = 4'b0;
       assign vrf_instr_data_wdata = 32'b0;
       assign vrf_stream = 1'b0;
+      assign vrf_fetch_hold = 1'b0;
     end
   end else begin : no_vrf_block
   // Hardwire all output of VRF if to 0
+    assign vrf_fetch_hold = 1'b0;
     assign vrf_rdata_a = 32'b0;
     assign vrf_rdata_b = 32'b0;
     assign vrf_rdata_c = 32'b0;

@@ -81,6 +81,8 @@ module cve2_vrf_interface_double #(
     // Instruction fetch busy (prefetch buffer has a fetch outstanding or requested): the
     // slave shares the instruction port with fetch, see mst_start_hold
     input  logic                  if_busy_i,
+    // A vector op that uses the instr if is in ID: instruction fetch must not issue new requests
+    output logic                  fetch_hold_o,
 
     // LSU signals
     output logic                  lsu_req_o,          // signals the LSU that it can start the memory operation
@@ -185,7 +187,9 @@ logic even_iteration;
 logic slv_active;                       // the slave has at least one beat to execute
 logic mst_owns_tail;                    // the master, not the slave, executes the final beat
 logic mst_tail_write;                   // the master's current write is the final (partial) beat
-logic wr_only_op;                       // vmv.v.x / vmv.v.i: master-only, writes without reading
+// INT path (.vv, vmacc/vdot .vx), even beat count.
+logic slv_int_last_wr;                  // assigned next to wr_only_op
+logic wr_only_op;                      // vmv.v.x / vmv.v.i: master-only, writes without reading
 logic wr_only_done;                     // wr_only_op: every beat has been written
 
 // Slave FSM
@@ -668,12 +672,13 @@ always_comb begin
       end
     end
 
-    // Streaming load/store: ends on the completion of the last word. A load retires one
-    // cycle after the grant of its last VRF write (VRF_DONE_MST), a store on the grant of
-    // its last LSU write, as in the master-only path.
+    // Streaming load/store: ends on the completion of the last word. A load retires on the
+    // grant of its last VRF write, a store on the grant of its last LSU write. The VRF writes
+    // of a load go on the instruction port, whose switch routes the response by prev_op_q
+    // (set at the grant), so the load does not need VRF_DONE_MST to wait for it.
     VRF_STREAM_MST: begin
       if (str_pop && str_last) begin
-        next_mst_state = str_load ? VRF_DONE_MST : VRF_IDLE_MST;
+        next_mst_state = VRF_IDLE_MST;
       end else begin
         next_mst_state = VRF_STREAM_MST;
       end
@@ -882,8 +887,14 @@ always_comb begin
       // the byte offset this cycle, and slide_empty is computed from it.
       if (slide_empty) vector_done_mst = 1'b1;
     end
+    // Multicycle ops (vmulh*): the multiplier steps MULL -> MULH as soon as the op is in ID
+    // unless stalled, and the MC FSM needs it in MULL when the operands arrive (START + 3).
+    // Hold it in MULL until START, so its phase no longer depends on how long the op waits
+    // here (mst_start_hold): with an even decode -> START delay vmulh.vv was wrong.
+    if (req_i && multicycle_op_i && !memory_op_i) ex_stall_o = 1'b1;
   end
   VRF_START_MST: begin
+    if (multicycle_op_q && !memory_op_q) ex_stall_o = 1'b1; // see VRF_IDLE_MST
     first_iteration_d = 1'b1;
     slide_first_write_d = 1'b1;
     next_mc_demux_sel = 1'b0;
@@ -1329,7 +1340,7 @@ always_comb begin
   VRF_STREAM_MST: begin
     // The data if is left to the LSU, the instr if is driven by the streaming logic
     lsu_req_o = str_lsu_req;
-    vector_done_mst = !str_load && str_pop && str_last;
+    vector_done_mst = str_pop && str_last;
     dec_iterations_mst = str_pop; // num_iterations_q counts the words not completed
   end
   VRF_STORE_WAITLSU: begin
@@ -1619,15 +1630,16 @@ always_comb begin
       end else begin
         if (instr_data_gnt_i) begin
           // When gnt from VRF and mst has already finished its write
+          // slv_int_last_wr: this granted write is the final one, retire now (see its declaration)
           if (sel_operation_q[0] || !sel_operation_q[2]) begin
             if (mst_sync_slv[0] || mst_sync_slv[1] || last_iteration_q) begin
-              next_slv_state = VRF_INT_WRITE_SLV;
+              next_slv_state = slv_int_last_wr ? VRF_IDLE_SLV : VRF_INT_WRITE_SLV;
             end else begin
               next_slv_state = VRF_SYNC_SLV; // wait until master is synced
             end
           end else begin
             if (mst_sync_slv[2] || last_iteration_q) begin
-              next_slv_state = VRF_INT_WRITE_SLV;
+              next_slv_state = slv_int_last_wr ? VRF_IDLE_SLV : VRF_INT_WRITE_SLV;
             end else begin
               next_slv_state = VRF_SYNC_SLV; // wait until master is synced
             end
@@ -2000,6 +2012,8 @@ always_comb begin
           else
             agu_incr_slv[0] = 1'b1;
           slv_sync_mst_d[3] = 1'b1; // write incs
+          // Final write granted: done now instead of in VRF_INT_WRITE_SLV one cycle later
+          if (next_slv_state == VRF_IDLE_SLV) vector_done_slv = 1'b1;
         end
       end else begin
         // First pass: if the master's sync pulse was missed the next-state logic goes to
@@ -2360,6 +2374,10 @@ assign wr_only_op   = !memory_op_q && !mult_ops_q && !slide_op_q && !multicycle_
                       (sel_operation_q == 4'b1000);
 assign wr_only_done = (num_iterations_q == {(PIPE_WIDTH-2){~no_offset}});
 
+// See the declaration of slv_int_last_wr
+assign slv_int_last_wr = (curr_slv_state == VRF_INT_READ1_SLV) && !first_iteration_q &&
+                         even_iteration && last_iteration_d;
+
 // last_iteration_q rises when the counter reaches T. Stores write their last word in
 // VRF_STORE_LAST: last_iteration_q can already be set in the VRF_STORE_READ before it.
 // The tail be is kept in VRF_STORE_WAITDONE, as the LSU computes the be of the second half
@@ -2408,6 +2426,12 @@ assign op_uses_slave  = (!memory_op_i && slv_active &&
                          (mult_ops_i || (!slide_op_i && !multicycle_op_i && (sel_operation_i[0] || sel_operation_i[1])))) ||
                         (memory_op_i && unit_stride_i);
 assign mst_start_hold = if_busy_i && op_uses_slave;
+
+// No new fetch request while an op that uses the instr if is in ID (the prefetch buffer keeps
+// an already issued, not yet granted request): if_busy_i at the start of the op is then only a
+// fetch issued before the op reached ID (refill after a taken branch), the case the hold is for.
+// The FIFO is refilled once the op retires.
+assign fetch_hold_o   = req_i && op_uses_slave;
 always_comb begin
   // Default values
   last_iteration_mst = (even_iteration && mst_start_slv_q) ? last_iteration_q : last_iteration_odd_q;
