@@ -96,7 +96,6 @@ targets:
     toplevel: cve2_top
     parameters:
       - tool_vivado ? (FPGA_XILINX=true)
-      - DOUBLE_W_IF=true
 
   asic_synthesis:
     filesets:
