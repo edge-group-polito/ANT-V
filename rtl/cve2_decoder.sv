@@ -2089,11 +2089,10 @@ module cve2_decoder #(
 
       OPCODE_STORE_V: begin
         if (RV32VX) begin
-          if (instr[31:26] == 6'b000000) begin
-            alu_op_b_mux_sel_o = OP_B_REG_B;
-            alu_op_a_mux_sel_o = OP_A_FWD;
-            alu_operator_o = ALU_ADD;
-          end
+          // unit stride and constant stride
+          alu_op_b_mux_sel_o = OP_B_REG_B;
+          alu_op_a_mux_sel_o = OP_A_FWD;
+          alu_operator_o = ALU_ADD;
         end
       end
 
