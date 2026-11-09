@@ -149,6 +149,7 @@ module cve2_vrf_interface #(
   logic sel_slide_be;                             // signal used to select the correct byte-enable for the first write operation
   logic [3:0] slide_offset_be;
   logic no_offset_first;
+  logic slide_empty;                              // slide with OFFSET >= vl: no beat to execute
 
   // Handle misaligned sub-word mem accesses
   // TODO: only store are supported and tested for now (to improve with load)
@@ -272,6 +273,8 @@ module cve2_vrf_interface #(
   end
 
   assign num_bytes_elements = vl_i<<sew_i;
+  // Same as the double interface: a slide with nothing to write retires from IDLE.
+  assign slide_empty = slide_op_i && (slide_offset_i >= num_bytes_elements);
   always_comb begin
     // register enables
     rs1_en = 1'b0;
@@ -338,7 +341,15 @@ module cve2_vrf_interface #(
             num_iterations_d = slide_op_i ? num_bytes_elements[31:2] - slide_offset_i[31:2] : num_bytes_elements[31:2];
             slide_offset_en = slide_op_i;
             offset_d = num_bytes_elements[1:0]; //TODO: check this does not break for VLEN >128 (should be ok)
-            vrf_next_state = VRF_START;
+            // agu_load_o must stay asserted here: it is what makes slide_offset_i carry the byte
+            // offset this cycle (slide_addr_req_i = agu_load && vrf_slide_op in the core)
+            if (slide_empty) begin
+              vector_done_o = 1'b1;
+              num_iterations_d = '0;
+              vrf_next_state = VRF_IDLE;
+            end else begin
+              vrf_next_state = VRF_START;
+            end
           end
         end
       end
